@@ -135,7 +135,15 @@ def pick_news(inp: dict, config=None) -> dict:
 
 
 # ---------------------------------------------------------------- writer
-WRITER_SYSTEM = """You are Europa, a research assistant for financial analysts. You answer questions about one company
+WRITER_SYSTEM = """You are Europa, a plain-English assistant for everyday investors (retail traders, not analysts). Lead with the direct answer.
+Explain every finance term in the same sentence in under 8 words (e.g. "diluted EPS, the profit earned per share";
+"operating income, profit from the core business"), then say what the change means in everyday words. Summarize long
+filing text in your own short words instead of quoting it at length. Never write numbers or fractions as words
+(no "a sixth", "doubled", "twice"). If asked what a term means, explain it plainly and give its figure.
+If the question states a number or direction that the sheets contradict, never repeat the user's number: say it is not
+right and state the true value from the sheets (e.g. "Diluted EPS in fiscal 2026 was $8.98."). Check the direction a
+question assumes ("why did X fall") against the sheets before answering; if it actually rose, say so with the figure.
+You answer questions about one company
 using ONLY the EVIDENCE SHEETS given to you (for example SEC 10-K facts, end-of-day market data, a second-source check).
 
 Rules:
@@ -161,17 +169,22 @@ Reply with JSON only, no other text:
             {"type": "quote", "text": "exact words", "filing": "FY2026"}]}"""
 
 
-def write(inp: dict, config=None) -> dict:
-    from backend import ask  # lazy: ask may import desk, which imports agents
-
+def writer_human(inp: dict) -> str:
+    """The writer's prompt: company, evidence sheets, unavailable sources, question. Shared with the council."""
     sheets = "\n\n".join(f"EVIDENCE SHEET {n}:\n{s}" for n, s in enumerate(inp.get("sheets") or [], 1))
     unavailable = inp.get("unavailable") or []
     unav = ("UNAVAILABLE (do not guess these parts):\n" +
             "\n".join(f"- {u.get('agent')}: {u.get('reason')}" for u in unavailable)) if unavailable else ""
     news = "Recent headlines exist and are listed below your answer by code." if inp.get("has_news") else ""
-    human = "\n\n".join(p for p in [
+    return "\n\n".join(p for p in [
         f"Company: {inp.get('company') or inp.get('ticker')} ({inp.get('ticker')})", sheets, unav, news,
         f"Question: {inp.get('question', '')}"] if p)
+
+
+def write(inp: dict, config=None) -> dict:
+    from backend import ask  # lazy: ask may import desk, which imports agents
+
+    human = writer_human(inp)
     obj, name = call_json(WRITER_MODELS, WRITER_SYSTEM, human, config, need_key="answer")
     if obj is None:
         return {"draft": dict(FAIL_DRAFT, claims=[]), "model": None}
@@ -193,6 +206,9 @@ For each sentence give one verdict:
 - "ADVICE" if it tells the reader what to do with money or predicts returns.
 - Otherwise "SUPPORTED".
 Sentences that only say data is unavailable, or that Europa does not know, are always SUPPORTED.
+The evidence sheets are about the company on the "Company:" line only. If the question names another company
+or ticker, the sheets still describe only that one company: a sentence saying the data does not cover another
+company is SUPPORTED, and a sentence that gives a sheet number as another company's figure is UNSUPPORTED.
 
 Reply with JSON only:
 {"verdicts": [{"i": 1, "verdict": "SUPPORTED", "why": ""}]}"""
@@ -202,7 +218,8 @@ def review(inp: dict, config=None) -> dict:
     sentences = list(inp.get("sentences") or [])
     sheets = "\n\n".join(f"EVIDENCE SHEET {n}:\n{s}" for n, s in enumerate(inp.get("sheets") or [], 1))
     numbered = "\n".join(f"{n}. {s}" for n, s in enumerate(sentences, 1))
-    human = f"Question: {inp.get('question', '')}\n\n{sheets}\n\nDRAFT SENTENCES:\n{numbered}"
+    company = f"Company: {inp.get('company') or inp.get('ticker') or 'unknown'} ({inp.get('ticker') or 'unknown'})"
+    human = f"{company}\nQuestion: {inp.get('question', '')}\n\n{sheets}\n\nDRAFT SENTENCES:\n{numbered}"
     obj, name = call_json(SKEPTIC_MODELS, SKEPTIC_SYSTEM, human, config, need_key="verdicts")
     if obj is None or not isinstance(obj.get("verdicts"), list):
         return {"status": "unavailable", "verdicts": [], "model": None}
@@ -210,9 +227,10 @@ def review(inp: dict, config=None) -> dict:
     for v in obj["verdicts"]:
         if not isinstance(v, dict):
             continue
-        try:
-            i = int(v.get("i"))
-        except (TypeError, ValueError):
+        i = v.get("i")
+        if isinstance(i, str) and i.strip().isdigit():
+            i = int(i.strip())
+        if isinstance(i, bool) or not isinstance(i, int):  # 1e999, 1.5, true: not a sentence number
             continue
         verdict = str(v.get("verdict", "")).strip().upper()
         if not 1 <= i <= len(sentences) or verdict not in VERDICTS or i in seen:

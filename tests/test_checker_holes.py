@@ -170,7 +170,8 @@ def test_h5_close_on_todays_date_is_cut(monkeypatch):
     p = _market_pack(monkeypatch)
     wrong = gate.final_check("AAPL", {"status": "ANSWERED", "answer": "Apple closed at $342.56 on 2026-11-21.",
                                       "claims": [{"value": "$342.56", "fact_id": "px_close_last"}]}, [p])
-    assert wrong["status"] == "I_DONT_KNOW" and wrong["blocked"][0]["status"] == "UNCHECKABLE"
+    # 2026-11-21 (attack round): the checker now ties the close to its date, so this is cut one step earlier
+    assert wrong["status"] == "I_DONT_KNOW" and wrong["blocked"][0]["status"] in ("BLOCKED", "UNCHECKABLE")
     right = gate.final_check("AAPL", {"status": "ANSWERED", "answer": "Apple closed at $342.56 on 2026-11-20.",
                                       "claims": [{"value": "$342.56", "fact_id": "px_close_last"}]}, [p])
     assert right["status"] == "ANSWERED" and not right["blocked"]
@@ -270,5 +271,10 @@ def test_h6_bad_skeptic_output_does_not_raise(_desk_env, monkeypatch, skeptic_ou
         deps = _deps(packs)
         deps.skeptic = RunnableLambda(lambda i: skeptic_out, name="skeptic_review")
         out = desk.answer("AAPL", "What were net sales?", deps=deps)
+        assert isinstance(out["answer"], str)
+        if mode == "enforce" and not (isinstance(skeptic_out, dict) and skeptic_out.get("status") == "ok"):
+            # skeptic broken in enforce mode: fail closed, the number sentence is withheld
+            assert "$478.8 billion" not in out["answer"]
+            continue
         assert out["status"] == "ANSWERED" and "$478.8 billion" in out["answer"]
         assert all(c["status"] == "VERIFIED" for c in out["claims"])

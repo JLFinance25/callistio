@@ -43,7 +43,7 @@ def test_desk_error_falls_back_to_single(monkeypatch):
 
 def test_status_endpoint_booleans_only():
     body = TestClient(app).get("/api/status").json()
-    assert set(body) == {"pipeline", "massive", "prism"}
+    assert set(body) == {"pipeline", "massive", "prism", "nicrron"}
     assert body["massive"] is False and isinstance(body["prism"], bool)
 
 

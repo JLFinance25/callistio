@@ -305,7 +305,7 @@ NEWS_SOURCE = "Massive news feed"
 def _news(inp: dict) -> dict:
     t = _ticker(inp)
     items = []
-    for r in massive.news(t, 20):  # one call; extra rows leave room after pitch-style headlines are dropped
+    for r in massive.news(t, 50):  # one call; extra rows leave room after pitch-style headlines are dropped
         if not isinstance(r, dict):
             continue
         title = str(r.get("title") or "").strip()

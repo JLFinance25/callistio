@@ -5,7 +5,6 @@ Order (fails closed at each step):
 market-data facts minus quarantined ids -> 4. naked-number sweep (UNCHECKABLE) -> 5. status.
 """
 import re
-from datetime import date
 
 from langchain_core.runnables import RunnableLambda
 
@@ -23,39 +22,44 @@ ADVICE_PHRASES = [re.compile(p, re.I) for p in (
     r"\bwill (rise|fall|go up|go down|outperform)\b",
 )]
 
-# Digits that are not claims: fiscal years, years, SEC form names, risk-factor items, quarters.
+# Digits that are not claims: fiscal years, SEC form names, risk-factor items, quarters, and the time windows
+# the market sheet has facts for (the checker ties a return to the window its sentence names).
 GENERIC_ALLOWED = [re.compile(p, re.I) for p in (
     r"\bFY\s?\d{4}\b",
-    r"\b(19|20)\d{2}\b",
     r"\b(10-K|10-Q|8-K|13-F|20-F)\b",
     r"\bItem\s+\d+[A-Z]?\b",
     r"\bQ[1-4]\b",
+    r"\b(?:1[- ](?:day|week|month|year)|5[- ](?:trading[- ])?days?|3[- ]months?|12[- ]months?)\b",
 )]
+# A bare year is allowed only where a year is read as a year ("in 2026", "fiscal 2026", "Apple's 2026 10-K").
+# "Apple has 2026 retail stores" is a count and is not allowed.
+YEAR = re.compile(r"\b(?:19|20)[0-9]{2}\b")
+_YEAR_LEAD = re.compile(
+    r"(?:[(\[\"\u201c]|['\u2019]s\s+|[0-9]\s?[-\u2013/]\s?|\b(?:fiscal|fy|in|for|of|during|since|from|to|through|"
+    r"throughout|until|by|before|after|and|or|vs\.?|versus|with|than|the|its|their|both|years?|calendar|late|early|"
+    r"mid|end|ended|ending|between|into|over|across|beyond|q[1-4]|" + checker._MONTHS + r")\s+)$", re.I)
 DIGITS = re.compile(r"\d[\d,]*(?:\.\d+)?")
+# Numbers written without digits. The checker cannot read them, so the sentence is cut.
+_WORD = (r"(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|"
+         r"seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)")
+WORD_NUMBERS = [re.compile(p, re.I) for p in (
+    r"\b(?:hundred|thousand|million|billion|trillion)\b",  # a scale word no checked number covers
+    rf"\b{_WORD}(?:[- ]{_WORD})?\s+(?:percent|per cent|percentage points?|basis points?|dollars?|cents?|times)\b",
+    r"\b(?:doubl|tripl|trebl|quadrupl|halv)\w*|\btwice\b|\bthrice\b",
+    rf"\b(?:{_WORD}|[0-9]+)[- ]?fold\b",
+    r"\b(?:a|one|by|in|about|roughly|nearly|almost|over|than)\s+half\b|\bhalf (?:of|as)\b",
+    r"\b(?:one|two|three|a)[- ](?:third|fifth|tenth)s?\b|\ba quarter of\b",
+)]
 
 _VALID_KINDS = ("usd", "usd_per_share", "pct", "pts", "count")
 
 
-def expand_dates(iso_dates) -> list[str]:
-    """'2026-11-20' -> the ways a writer may print that date. Values that do not parse are skipped."""
-    out = []
-    for raw in iso_dates or ():
-        try:
-            d = date.fromisoformat(str(raw).strip()[:10])
-        except (TypeError, ValueError):
-            continue
-        month, mon = d.strftime("%B"), d.strftime("%b")
-        forms = [d.isoformat(), f"{month} {d.day}, {d.year}", f"{mon} {d.day}, {d.year}", f"{mon}. {d.day}, {d.year}",
-                 f"{month} {d.day}", f"{mon} {d.day}", f"{d.month}/{d.day}/{d.year}",
-                 f"{d.month:02d}/{d.day:02d}/{d.year}"]
-        for f in forms:
-            if f not in out:
-                out.append(f)
-    return out
+expand_dates = checker.expand_dates  # moved to the checker, which also ties a market number to its date
 
 
 def sweep(text: str, allow_text=(), allow_dates=()) -> list[str]:
-    """Digit tokens in `text` that nothing covers (not a checked number, allowed literal, date, year or form name)."""
+    """Number tokens in `text` that nothing covers (not a checked number, allowed literal, date, year or form name).
+    Also returned: numbers written as words ("fifty percent", "doubled"), which the checker cannot read."""
     text = text or ""
     mask = list(text)
 
@@ -69,13 +73,19 @@ def sweep(text: str, allow_text=(), allow_dates=()) -> list[str]:
     # (b) allowed literals and dates, longest first, case-insensitive
     literals = [str(t) for t in (allow_text or ()) if t] + expand_dates(allow_dates)
     for lit in sorted(set(literals), key=len, reverse=True):
-        for m in re.finditer(re.escape(lit), text, re.I):
+        # digit guards: "Nov 2" must not swallow the front of "Nov 20"
+        for m in re.finditer(r"(?<![0-9])" + re.escape(lit) + r"(?![0-9])", text, re.I):
             blank(m.start(), m.end())
-    # (c) generic patterns
+    # (c) generic patterns, then years that are written as years
     for rx in GENERIC_ALLOWED:
         for m in rx.finditer(text):
             blank(m.start(), m.end())
-    return [m.group(0) for m in DIGITS.finditer("".join(mask))]
+    for m in YEAR.finditer(text):
+        lead = text[:m.start()]
+        if not lead.strip() or lead.rstrip()[-1:] in ".!?" or _YEAR_LEAD.search(lead):
+            blank(m.start(), m.end())
+    left = "".join(mask)
+    return [m.group(0) for m in DIGITS.finditer(left)] + [m.group(0) for rx in WORD_NUMBERS for m in rx.finditer(left)]
 
 
 def _clean_facts(facts) -> dict:
@@ -142,7 +152,15 @@ def _final_check(ticker, draft, packs, verdicts):
         exclude.update(str(x) for x in _as_list(p.get("exclude")))
         if p.get("status") != "ok":
             continue
-        extra.update(_clean_facts(p.get("facts")))
+        for fid, f in _clean_facts(p.get("facts")).items():
+            # dates a sentence may put next to this number: the fact's own date or the pack's last trading day
+            # a daily-bar fact (a close, open, high, low, volume or return) is bound to its own date only, so a
+            # Nov 19 close cannot be stated as Nov 20 (Codex #3); the pack's day is a fallback when it has none.
+            # Other facts (market cap) may also carry the pack's last trading day.
+            bar = fid.startswith(("px_", "ret_", "volume"))
+            own = (f.get("as_of"),) if bar and f.get("as_of") else (f.get("as_of"), p.get("as_of"))
+            dates = [str(d) for d in own if d]
+            extra[fid] = {**f, "dates": dates} if dates else f
         allow_text += [str(x) for x in _as_list(p.get("allow_text")) if x]
         allow_dates += [str(x) for x in _as_list(p.get("allow_dates")) if x]
     model_claims = [c for c in _as_list(draft.get("claims")) if isinstance(c, dict)]
@@ -150,6 +168,7 @@ def _final_check(ticker, draft, packs, verdicts):
 
     # (4) naked-number sweep, sentence by sentence
     quote_texts = {c.get("text") for c in model_claims if c.get("type") == "quote" and c.get("text")}
+    quote_texts |= set(checker.quoted_spans(" ".join(kept)))
     allow_text += [c["text"] for c in res["claims"] if c.get("status") == "VERIFIED" and c.get("text") in quote_texts]
     claims, unchecked, final, seen = list(res["claims"]), [], [], set()
     for s in checker.split_sentences(res["answer"]):

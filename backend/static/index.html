@@ -98,6 +98,8 @@ async function ask(question){
     if(d.agents && d.agents.length){
       wait.appendChild(el('div','meta','Agents: '+d.agents.map(a=>(STEP[a.name]||String(a.name||'').replace(/^specialist_/,''))+(a.status&&a.status!=='ok'?' ('+a.status+')':'')).join(' · ')));
     }
+    if(d.council && d.council.members){ const c=d.council, ok=c.members.filter(m=>m.status==='ok').map(m=>m.name||m.model);
+      wait.appendChild(el('div','meta',c.used?'Council: '+ok.join(' · ')+' — '+c.agreed+' agreed'+(c.majority?', '+c.majority+' by majority':'')+', '+(c.disputed||[]).length+' disputed':'Council: fewer than two models answered, single writer used')); }
     if(d.sources && d.sources.length){
       wait.appendChild(el('div','meta','Sources: '+d.sources.map(x=>(x.name||'')+(x.status==='ok'?(x.as_of?' (as of '+x.as_of+')':''):' (unavailable: '+(x.reason||'no reason given')+')')).join(' · ')));
     }

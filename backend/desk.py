@@ -1,7 +1,7 @@
 """Europa research desk: the multi-agent pipeline behind POST /api/ask (EUROPA_PIPELINE=multi).
 
-guard_advice -> desk_router -> specialists (parallel) -> news_picker -> write_answer -> skeptic_review
--> number_gate -> notices. Every step is a named LangChain Runnable, so PRISM records each one.
+guard_advice -> desk_router -> specialists (parallel) -> news_picker -> council (three models, compare, merge;
+EUROPA_COUNCIL=off or a council failure -> write_answer) -> skeptic_review -> number_gate -> notices. Every step is a named LangChain Runnable, so PRISM records each one.
 Code has the last word: the gate checks every number, and code (not a model) writes the
 "X is unavailable" sentences. ask.answer() falls back to the single-agent path if this raises.
 """
@@ -23,8 +23,7 @@ SOURCE_NAMES = {"filings": "SEC EDGAR 10-K", "market": "Massive market data (end
                 "fundamentals": "Massive income statements (second source)", "news": "Massive news headlines"}
 WRITABLE = ("filings", "market", "fundamentals")
 _TICKER_RX = re.compile(r"^[A-Z][A-Z0-9.\-]{0,9}$")
-_SECOND_SOURCE_RX = re.compile(r"second (data )?source|another source|other source|cross-?\s?check|double-?\s?check|"
-                               r"\bconfirm|\bagree|\bmassive\b|\bverif", re.I)
+_SECOND_SOURCE_RX = re.compile(r"second (data )?source|another source|independent source|cross-?\s?check", re.I)
 _HEADLINE_POINTER_RX = re.compile(r"\bheadlines?\b[^.]*\blisted below\b", re.I)
 _PACK_DEFAULTS = {"reason": None, "source": None, "as_of": None, "facts": {}, "exclude": [], "sheet": "",
                   "allow_text": [], "allow_dates": [], "items": [], "crosscheck": [], "seconds": 0.0}
@@ -80,12 +79,24 @@ class Deps:
     writer: Any
     skeptic: Any
     gate: Any
+    council: Any = None  # three-model council (backend/council.py); None = single writer, as before
+    council_writer: Any = None  # the writer the council stands in for; if deps.writer was swapped, no council
 
 
 def default_deps() -> Deps:
     from backend import agents, gate, specialists  # lazy: built by other builders
+    council_run = None
+    if _council_on():  # the council module is only loaded when it is switched on
+        from backend import council
+        council_run = council.COUNCIL
     return Deps(guard=GUARD, router=agents.ROUTER, specialists=dict(specialists.SPECIALISTS),
-                news_picker=agents.NEWS_PICKER, writer=agents.WRITER, skeptic=agents.SKEPTIC, gate=gate.GATE)
+                news_picker=agents.NEWS_PICKER, writer=agents.WRITER, skeptic=agents.SKEPTIC, gate=gate.GATE,
+                council=council_run, council_writer=agents.WRITER)
+
+
+def _council_on() -> bool:
+    """EUROPA_COUNCIL=on -> the three-model council. Default (2026-11-21 review): off, the single writer."""
+    return os.environ.get("EUROPA_COUNCIL", "off").strip().lower() in ("on", "1", "true", "yes")
 
 
 _DEPS: contextvars.ContextVar = contextvars.ContextVar("europa_desk_deps", default=None)
@@ -176,6 +187,8 @@ def _notices(inp: dict) -> dict:
                        "so Europa can't say the annual figures were confirmed.")
     if exclude:
         out.append("Two sources disagreed on some figures, so Europa left those out.")
+    if inp.get("council_disputed"):
+        out.append("The council models disagreed on some figures, so Europa left those out.")
     body = inp["answer"].strip()
     if inp.get("news") and inp.get("writer_ran"):
         # the code notice replaces any writer sentence that only points at the headlines (delete-only, no digits)
@@ -256,6 +269,7 @@ def _pipeline(inp: dict, config) -> dict:
     # 5. nothing writable -> fixed answer, no writer / skeptic / gate
     writable = [p for p in ok_packs if p["agent"] in WRITABLE and p["sheet"].strip()]
     writer_ran = False
+    council_exclude: list = []
     if not writable:
         if npack and npack["status"] == "ok":
             status = "ANSWERED"
@@ -268,8 +282,27 @@ def _pipeline(inp: dict, config) -> dict:
         # 6. writer
         exclude = {fid for p in packs for fid in p.get("exclude", [])}
         sheets = [_strip_excluded(p["sheet"], exclude) if p["agent"] == "filings" else p["sheet"] for p in writable]
-        w, s = _timed(deps.writer, {"ticker": ticker, "company": facts.COMPANY.get(ticker), "question": question,
-                                    "sheets": sheets, "unavailable": unavailable, "has_news": bool(news)}, config)
+        winp = {"ticker": ticker, "company": facts.COMPANY.get(ticker), "question": question,
+                "sheets": sheets, "unavailable": unavailable, "has_news": bool(news)}
+        w = None
+        swapped = deps.council_writer is not None and deps.writer is not deps.council_writer
+        if deps.council is not None and _council_on() and not swapped:
+            # 6a. council: three models answer separately, code compares their numbers, one merged draft
+            try:
+                c = deps.council.invoke(winp, config=config)
+            except Exception:  # noqa: BLE001  the council never crashes the desk
+                c = None
+            c = c if isinstance(c, dict) else {}
+            agents.extend(r for r in (c.get("rows") or []) if isinstance(r, dict))
+            if isinstance(c.get("council"), dict):
+                base["council"] = c["council"]
+            if c.get("ok") is True and isinstance(c.get("draft"), dict):
+                for m in c.get("models") or []:
+                    used(m)
+                w = {"draft": c["draft"], "model": c.get("model"), "council": True}
+                council_exclude = [str(x) for x in (c.get("exclude") or [])]
+        if w is None:  # council off, or fewer than two members answered: the single writer, as before
+            w, s = _timed(deps.writer, winp, config)
         writer_ran = True
         w = w if isinstance(w, dict) else {}
         used(w.get("model"))
@@ -281,8 +314,9 @@ def _pipeline(inp: dict, config) -> dict:
             draft.get("claims"), list) else []
         if draft.get("status") not in ("ANSWERED", "I_DONT_KNOW"):
             draft["status"] = "ANSWERED"
-        agents.append(_row("write_answer", "model", w.get("model"), "ok" if w.get("model") else "unavailable",
-                           f"draft {draft.get('status')}", s))
+        if not w.get("council"):
+            agents.append(_row("write_answer", "model", w.get("model"), "ok" if w.get("model") else "unavailable",
+                               f"draft {draft.get('status')}", s))
 
         if ask.checker_on():
             # 7. skeptic + gate
@@ -292,11 +326,15 @@ def _pipeline(inp: dict, config) -> dict:
             verdicts, sk = [], {"status": "off", "model": None, "refuted": 0, "flags": []}
             if mode != "off":
                 sentences = checker.split_sentences(draft.get("answer", ""))
-                rv, s = _timed(deps.skeptic, {"question": question, "sheets": sheets, "sentences": sentences}, config)
+                rv, s = _timed(deps.skeptic, {"ticker": ticker, "company": facts.COMPANY.get(ticker),
+                                              "question": question, "sheets": sheets, "sentences": sentences}, config)
                 rv = rv if isinstance(rv, dict) else {}
                 used(rv.get("model"))
                 verdicts = rv.get("verdicts") if rv.get("status") == "ok" else []
                 verdicts = [v for v in verdicts if isinstance(v, dict)] if isinstance(verdicts, list) else []
+                if rv.get("status") != "ok" and mode == "enforce":  # fail closed: no review, no number sentences
+                    verdicts = [{"i": i, "verdict": "UNSUPPORTED", "why": "skeptic unavailable"}
+                                for i, t in enumerate(sentences, 1) if re.search(r"\d", str(t))]
                 flags = [v for v in verdicts if v.get("verdict") != "SUPPORTED"]
                 sk = {"status": ("advisory" if mode == "advisory" else "ok") if rv.get("status") == "ok"
                       else "unavailable", "model": rv.get("model"), "refuted": 0,
@@ -305,7 +343,10 @@ def _pipeline(inp: dict, config) -> dict:
                                    "ok" if rv.get("status") == "ok" else "unavailable",
                                    f"{mode}: {len(flags)} flagged of {len(sentences)}", s))
             # every pack goes to the gate: it reads facts only from ok packs, exclusions from all of them
-            g, s = _timed(deps.gate, {"ticker": ticker, "draft": draft, "packs": packs,
+            # figures the council disputed go in as exclusions, so code cuts any sentence that still uses one
+            gate_packs = packs + ([{"agent": "council", "status": "unavailable", "exclude": council_exclude}]
+                                  if council_exclude else [])
+            g, s = _timed(deps.gate, {"ticker": ticker, "draft": draft, "packs": gate_packs,
                                       "verdicts": verdicts if mode == "enforce" else []}, config)
             res = g["result"]
             status, answer = res["status"], res.get("answer", "")
@@ -321,7 +362,8 @@ def _pipeline(inp: dict, config) -> dict:
 
     # 8. notices
     n, s = _timed(NOTICES, {"answer": answer, "packs": packs, "claims": claims, "news": news,
-                            "writer_ran": writer_ran, "question": question}, config)
+                            "writer_ran": writer_ran, "question": question,
+                            "council_disputed": bool(council_exclude) and ask.checker_on()}, config)
     agents.append(_row("notices", "code", note=f"{n['added']} notice(s)", seconds=s))
     return {**base, "status": status, "answer": n["answer"], "claims": claims, "blocked": blocked}
 

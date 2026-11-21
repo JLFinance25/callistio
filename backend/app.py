@@ -17,6 +17,11 @@ from backend import ask as ask_agent
 
 app = FastAPI(title="What Changed")
 
+import os as _os
+import warnings as _warnings
+if not _os.environ.get("NICRRON_API_KEY"):
+    _warnings.warn("NICRRON_API_KEY missing in .env: every question will answer \"I couldn't produce a checked answer\".")
+
 # The Ninoo front end runs on a different address, so allow cross-site calls.
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
@@ -44,7 +49,8 @@ def status():
 
     from backend import massive, tracing
     return {"pipeline": os.environ.get("EUROPA_PIPELINE", "multi").strip().lower() or "multi",
-            "massive": massive.available(), "prism": tracing.handler is not None}
+            "massive": massive.available(), "prism": tracing.handler is not None,
+            "nicrron": bool(os.environ.get("NICRRON_API_KEY"))}
 
 
 @app.post("/api/compare")
@@ -52,28 +58,65 @@ def compare(req: CompareRequest):
     return fake_compare(req.ticker.upper())
 
 
+MAX_Q = 2000
+_TICKER_RX = __import__("re").compile(r"[A-Za-z.]{1,10}")
+
+
+def _clean_ticker(t) -> str:
+    t = str(t or "AAPL").strip()
+    return t.upper() if _TICKER_RX.fullmatch(t) else ""
+
+
+def _bad(msg: str) -> dict:
+    return {"answer": msg, "reply": msg, "response": msg, "status": "I_DONT_KNOW", "claims": [], "blocked": []}
+
+
+@app.exception_handler(__import__("fastapi").exceptions.RequestValidationError)
+def _validation_error(request, exc):
+    """Never echo the raw bad input back (public link)."""
+    from fastapi.responses import JSONResponse
+    return JSONResponse(status_code=422, content={"detail": "Send JSON like {\"ticker\": \"AAPL\", \"question\": \"...\"}."})
+
+
 @app.post("/api/ask")
 def ask(req: AskRequest):
-    return ask_agent.answer(req.ticker, req.question)
+    ticker, q = _clean_ticker(req.ticker), (req.question or "").strip()
+    if not ticker:
+        return _bad("Please send a stock ticker of up to 10 letters, like AAPL.")
+    if not q:
+        return _bad("Please send a question.")
+    if len(q) > MAX_Q:
+        return _bad(f"Please keep questions under {MAX_Q} characters.")
+    return ask_agent.answer(ticker, q)
 
 
 @app.post("/api/chat")
 def chat(body: dict):
     """Generic chat address for testers like PRISM "Test your AI": accepts {message}, {question}, {input},
     {prompt} or OpenAI-style {messages:[...]}; ticker optional (default AAPL). Same pipeline as /api/ask."""
+    def _text(c) -> str:
+        if isinstance(c, str):
+            return c
+        if isinstance(c, list):
+            return " ".join(p["text"] for p in c[:50] if isinstance(p, dict) and isinstance(p.get("text"), str))
+        return ""
     text = next((body[k] for k in ("message", "question", "input", "prompt", "query")
                  if isinstance(body.get(k), str) and body[k].strip()), "")
     msgs = body.get("messages")
     if not text and isinstance(msgs, list):
-        for m in reversed(msgs):
-            if isinstance(m, dict) and m.get("role", "user") == "user":
-                c = m.get("content")
-                text = c if isinstance(c, str) else " ".join(
-                    p.get("text", "") for p in c if isinstance(p, dict)) if isinstance(c, list) else ""
+        for m in reversed(msgs[-200:]):
+            if isinstance(m, dict) and m.get("role", "user") == "user" and _text(m.get("content")).strip():
+                text = _text(m.get("content"))
                 break
-    if not text.strip():
-        return {"answer": "Please send a question.", "reply": "Please send a question.", "status": "I_DONT_KNOW"}
-    out = ask_agent.answer(str(body.get("ticker") or "AAPL"), text[:2000])
+    text = text.strip()
+    ticker = _clean_ticker(body.get("ticker"))
+    if not ticker:
+        return _bad("Please send a stock ticker of up to 10 letters, like AAPL.")
+    if not text:
+        return _bad("Please send a question.")
+    if len(text) > MAX_Q:
+        return _bad(f"Please keep questions under {MAX_Q} characters.")
+    out = ask_agent.answer(ticker, text)
     return {**out, "reply": out.get("answer", ""), "response": out.get("answer", "")}
 
 

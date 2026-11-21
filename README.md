@@ -11,6 +11,8 @@ uvicorn backend.app:app --reload --reload-dir backend --port 8000
 ```
 Check: http://localhost:8000/api/health · Tests: `python -m pytest -q`
 
+Public demo link (needs `cloudflared`): `scripts/serve_demo.sh on` starts the app on port 8010 behind a Cloudflare quick tunnel and writes the URL to `demo-logs/public-url.txt` (`off` = checker off, `stop` = shut down).
+
 ## Built with
 - **Nicrron API** for every model call (`backend/llm.py`)
 - **PRISM by Block Convey** for traces and testing
