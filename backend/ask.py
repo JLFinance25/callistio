@@ -133,7 +133,16 @@ def answer(ticker: str, question: str) -> dict:
         from backend import desk  # inside the function: desk imports ask
         return desk.answer(ticker, question)
     except Exception:  # noqa: BLE001  the old single-agent path (which checks numbers) is the safety net
-        return {**answer_single(ticker, question), "pipeline": "single_fallback"}
+        out = {**answer_single(ticker, question), "pipeline": "single_fallback"}
+        if checker_on():  # 2026-11-21 Codex final review #1: same naked-number sweep as the desk's gate
+            from backend import gate
+            ok = [c["text"] for c in out.get("claims") or [] if c.get("status") == "VERIFIED" and c.get("text")]
+            keep = [s for s in checker.split_sentences(out.get("answer") or "") if not gate.sweep(s, ok)]
+            if len(keep) != len(checker.split_sentences(out.get("answer") or "")):
+                out["answer"] = " ".join(keep) or gate.FALLBACK
+                if not keep:
+                    out["status"] = "I_DONT_KNOW"
+        return out
 
 
 def answer_single(ticker: str, question: str) -> dict:

@@ -269,6 +269,20 @@ def _families(text: str) -> set:
     return found
 
 
+_COMPARE_WORD = re.compile(r"\b(?:last|prior|previous|preceding|before|earlier|ago|versus|vs|from|compared|than|"
+                          r"year[- ](?:over|on)[- ]year|ytd|quarter|q[1-4])\b", re.I)
+_LEAD_FISCAL = re.compile(r"\b(?:fiscal(?:\s+year)?|fy)\s*((?:19|20)[0-9]{2})\b", re.I)
+
+
+def _lead_year(text: str, lo: int, sentence: str):
+    """The one fiscal year the sentence just before names, when this sentence names no year or comparison."""
+    if _YEAR_ANY.search(sentence) or _COMPARE_WORD.search(sentence):
+        return None
+    prev = _SENT_GAP.split(text[:lo].rstrip())[-1] if text[:lo].strip() else ""
+    years = {int(y) for y in _LEAD_FISCAL.findall(prev)}
+    return years.pop() if len(years) == 1 and not _COMPARE_WORD.search(prev) else None
+
+
 def context(text: str, num: dict, prev_end: int = 0) -> dict:
     """What the words around one number say it is: metric, fiscal year, time window, date.
     The metric is read from the words between the previous number and this one; if there are none, from
@@ -283,6 +297,13 @@ def context(text: str, num: dict, prev_end: int = 0) -> dict:
     lo, hi = _bounds(text, start, end)
     sentence, gap = text[lo:hi], text[max(lo, min(prev_end, start)):start]
     families = _families(gap) or _families(sentence)
+    # "EPS was $8.98. That is up from $7.46 ..., which means more profit than the year before.": the sentence points
+    # back ("That is") and names no metric before its first number, so the metric is the previous sentence's one,
+    # not a word that trails after the numbers.
+    if not _families(gap) and not _families(text[lo:start]) and re.match(r"\s*(?:that|this|it)(?:\s+is|\s+was|'s)\b", sentence, re.I):
+        back = _families(_SENT_GAP.split(text[:lo].rstrip())[-1]) if text[:lo].strip() else set()
+        if len(back) == 1:
+            families = back
     year_start, inherited_year, margin_share = end, None, False
     if families & {"px_high", "px_low"} and (span := _FISCAL_SPAN.search(sentence)):
         fiscal = _families(_FISCAL_SPAN.sub("", gap)) or _families(_FISCAL_SPAN.sub("", sentence))
@@ -324,6 +345,9 @@ def context(text: str, num: dict, prev_end: int = 0) -> dict:
             "day_before": bool(_DAY_BEFORE_AFTER.match(text[end:hi])),
             "year": year, "year_end": year_start + after.end() if after else end,
             "gap_years": {int(y) for y in _YEAR_ANY.findall(gap)},
+            "sent_years": {int(y) for y in _YEAR_ANY.findall(sentence)},
+            "years_after": {int(y) for y in _YEAR_ANY.findall(text[end:hi])},
+            "lead_year": _lead_year(text, lo, sentence), "compare": bool(_COMPARE_WORD.search(sentence)),
             "periods": {name for name, rx in _PERIOD_RX.items() if rx.search(sentence)},
             "dates": [_date_key(m.group(0)) for m in _DATE_RX.finditer(sentence)]}
 
@@ -381,6 +405,13 @@ def problem(fid: str, f: dict, stated=None, ctx: dict | None = None, facts: dict
                     return "year"
             elif ctx["gap_years"] and tags["year"] not in ctx["gap_years"]:
                 return "year"
+            elif (is_change_fact(fid) and len(ctx["sent_years"]) == 1 and not ctx["gap_years"]
+                  and not ctx["compare"]
+                  and ctx.get("years_after") and tags["year"] not in ctx["years_after"]):  # year must follow the percent
+                return "year"  # "rose 15.1% to $X in fiscal 2025": the change is for the one year named
+            elif (not is_change_fact(fid) and ctx["lead_year"] and not ctx["gap_years"]
+                  and tags["year"] != ctx["lead_year"]):
+                return "year"  # "Fiscal 2026 was a record year. Revenue was $416.2 billion."
         if ctx.get("prior_after") and fid.endswith("_fy2026"):
             return "year"
         if tags["period"] and ctx["periods"] and tags["period"] not in ctx["periods"]:

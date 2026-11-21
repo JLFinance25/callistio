@@ -54,11 +54,19 @@ def _massive_available() -> bool:
         return False
 
 
+def _advice_answer(ticker) -> str:
+    """The advice refusal. For a ticker with no filings loaded it must not offer "Apple's filings" as if they were that company's."""
+    if ticker in facts.FACTS or not _valid_ticker(ticker):
+        return ask.ADVICE_ANSWER
+    return ("I can't give personal investment advice or promise returns. This demo covers Apple (AAPL) only, "
+            "so I can't show filing figures for that company.")
+
+
 def _guard(inp: dict) -> dict:
     q = inp["question"].lower()
     t = inp["ticker"]
     if any(re.search(p, q) for p in ask._ADVICE):
-        return {**inp, "stop": ("DECLINED_ADVICE", ask.ADVICE_ANSWER)}
+        return {**inp, "stop": ("DECLINED_ADVICE", _advice_answer(t))}
     if any(re.search(p, q) for p in ask._INVENT):
         return {**inp, "stop": ("I_DONT_KNOW", ask.INVENT_ANSWER)}
     if not _valid_ticker(t) or (t not in facts.FACTS and not _massive_available()):
@@ -164,6 +172,10 @@ def _notices(inp: dict) -> dict:
         if p["status"] != "ok":
             if p["agent"] == "fundamentals" and not asked_second:
                 continue  # an extra check the user did not ask for: shown in sources/unavailable, not in the answer
+            if p["agent"] == "filings" and inp.get("ticker") and inp["ticker"] not in facts.FACTS:
+                # not an outage: filings are only loaded for AAPL
+                out.append("This demo covers Apple (AAPL) only, so I can't answer that and I won't guess.")
+                continue
             # fixed text only: a raw error reason ("HTTP 503") would put an unchecked number after the gate
             out.append(f"{LABELS.get(p['agent'], 'A data source')} is unavailable right now, "
                        "so I can't answer that part and I won't guess.")
@@ -231,7 +243,7 @@ def _pipeline(inp: dict, config) -> dict:
     agents.append(_row("desk_router", "model", r.get("model"), "ok" if not r.get("fallback") else "unavailable",
                        ("keyword fallback: " if r.get("fallback") else "picked ") + ", ".join(chosen), s))
     if r.get("advice") is True:
-        return {**base, "status": "DECLINED_ADVICE", "answer": ask.ADVICE_ANSWER, "claims": [], "blocked": []}
+        return {**base, "status": "DECLINED_ADVICE", "answer": _advice_answer(ticker), "claims": [], "blocked": []}
 
     # 3. specialists in parallel
     par = RunnableParallel({n: _safe_specialist(n, deps.specialists.get(n)) for n in chosen}).with_config(
@@ -362,7 +374,7 @@ def _pipeline(inp: dict, config) -> dict:
 
     # 8. notices
     n, s = _timed(NOTICES, {"answer": answer, "packs": packs, "claims": claims, "news": news,
-                            "writer_ran": writer_ran, "question": question,
+                            "writer_ran": writer_ran, "question": question, "ticker": ticker,
                             "council_disputed": bool(council_exclude) and ask.checker_on()}, config)
     agents.append(_row("notices", "code", note=f"{n['added']} notice(s)", seconds=s))
     return {**base, "status": status, "answer": n["answer"], "claims": claims, "blocked": blocked}

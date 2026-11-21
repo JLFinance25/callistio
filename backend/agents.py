@@ -158,6 +158,12 @@ Rules:
 - Write time windows in words ("over the past year", "since the start of the year"), never digits, except "52-week".
 - Write dates exactly as the sheet shows them (YYYY-MM-DD). Say "fiscal 2026" for fiscal years.
 - Do not state counts of things.
+- If the question contains a wrong number or wrong claim, never repeat the user's wrong number. Say it is not right
+  and state the true value from the sheets. (A sentence holding a number that is not in the sheets gets cut.)
+- For a comparison or "which grew faster" question, state both numbers in separate short sentences, each sentence
+  about one measure with its own figure (e.g. "Net income rose X%." "Revenue rose Y%."), then say which is larger.
+- If asked about a percentage measure (like gross margin percent), give the percentage itself in a short sentence of
+  its own (e.g. "Gross margin was X% in fiscal 2026."), not only the dollar figure.
 - If a source is listed under UNAVAILABLE, do not guess that part and do not apologise at length; code adds a notice.
 - Never describe news content. If headlines exist you may say that recent headlines are listed below.
 - If you quote a filing, copy the words exactly and list it in claims as a quote with its filing year.
