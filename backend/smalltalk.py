@@ -237,6 +237,13 @@ def wants_reassurance(q: str) -> bool:
 
 def reply(q: str):
     s = (q or "").strip()
+    try:  # product questions, beginner questions and bare definitions (fixed text, same contract as this file)
+        from backend import smalltalk_more
+        more = smalltalk_more.reply(s)
+        if more:
+            return {"definition": "define", "spanish": "language"}.get(more[0], more[0]), more[1]
+    except Exception:
+        pass
     if _non_english(s):
         return "language", _LANG_REPLY
     if not re.search(r"[A-Za-z]{2}", s):
@@ -248,6 +255,8 @@ def reply(q: str):
         if rx.search(s):
             if kind in ("offtopic", "rude") and _FINANCE.search(s):
                 continue
+            if kind in ("trust", "crypto", "offtopic") and _names_company(s):
+                continue  # "how do you check Apple's numbers against last year" is a data question
             return kind, text
     rp = _roleplay(s)
     if rp:

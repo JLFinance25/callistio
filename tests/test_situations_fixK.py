@@ -9,7 +9,7 @@ from backend import smalltalk, followup
                                "what is short selling?", "define buyback", "what is gross margin", "what is a stock"])
 def test_define_fires(q):
     got = smalltalk.reply(q)
-    assert got and got[0] == "define" and "Try:" in got[1]
+    assert got and got[0] == "define" and len(got[1]) > 60 and not any(ch.isdigit() for ch in got[1].replace("10-K", "").replace("52", ""))
 
 
 @pytest.mark.parametrize("q", ["what is Apple's EPS", "what is Nvidia's market cap", "what is TSLA dividend yield",

@@ -6,7 +6,7 @@ from backend import desk, massive, specialists as sp
 from tests.test_desk import Fakes, pack
 from tests.test_specialists import NEWS, _iso, _router  # noqa: F401  (_iso is an autouse fixture)
 
-OTHER = "Europa's headlines follow the selected ticker (AAPL), so none are listed for another company."
+OTHER = "Callisto's headlines follow the selected ticker (AAPL), so none are listed for another company."
 
 
 @pytest.fixture(autouse=True)
@@ -53,7 +53,7 @@ def test_headline_answer_names_newest_date():
     f = Fakes(route={"specialists": ["news"], "advice": False, "reason": "", "model": "m", "fallback": False},
               packs={"news": pack("news", items=_items(["2026-11-17T10:00:00Z", "2026-11-15T10:00:00Z"]))})
     out = desk.answer("AAPL", "Any Apple news today?", deps=f.deps)
-    assert "Europa has not verified them." in out["answer"]
+    assert "Callisto has not verified them." in out["answer"]
     assert "The newest one is dated 2026-11-17." in out["answer"]
     assert "Title 0" not in out["answer"]
     assert len(out["news"]) == 2
@@ -63,4 +63,4 @@ def test_headline_answer_without_dates_unchanged():
     f = Fakes(route={"specialists": ["news"], "advice": False, "reason": "", "model": "m", "fallback": False},
               packs={"news": pack("news", items=_items(["", ""]))})
     out = desk.answer("AAPL", "Apple news", deps=f.deps)
-    assert out["answer"].endswith("Europa has not verified them.") and "dated" not in out["answer"]
+    assert out["answer"].endswith("Callisto has not verified them.") and "dated" not in out["answer"]

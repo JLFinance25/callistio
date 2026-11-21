@@ -16,7 +16,7 @@ def test_ways_pick_by_topic():
     assert desk._ways("What do analysts think of Nvidia stock?")[0].startswith("Analyst ratings")
     assert desk._ways("Is Apple a safe stock?")[0].startswith("How to gauge risk")
     assert desk._ways("Why is Nvidia stock down today?")[0].startswith("Price data shows")
-    assert desk._ways("When does Apple report earnings next?")[0].startswith("Europa's data does not include")
+    assert desk._ways("When does Apple report earnings next?")[0].startswith("Callisto's data does not include")
     assert desk._ways("Is Apple a good long-term investment?")[0].startswith("For a long-term view")
     assert desk._ways("Should I sell my Apple shares?")[0].startswith("If you already own")
     assert desk._ways("What was Apple's revenue in fiscal 2026?") == []

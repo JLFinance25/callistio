@@ -4,11 +4,11 @@ import re
 NOTE_RX = re.compile(
     r"^(Market data: |Filing figures \(|For .{1,60}, ask about the share price|Recent headlines are listed|"
     r"Recent headlines are listed|The annual figures were confirmed|The second source|Two sources disagreed|"
-    r"The council models|Europa's headlines follow|Here are recent headlines|Europa has not verified them)")
+    r"The council models|(?:Europa|Callisto)'s headlines follow|Here are recent headlines|(?:Europa|Callisto) has not verified them)")
 WAY_RX = re.compile(
     r"^(How to judge the price:|How to gauge risk:|Things to weigh before deciding:|Things to weigh|To weigh:|"
     r"Analyst ratings and price targets are not|Price data shows how much|For a long-term view|"
-    r"If you already own the shares|Europa's data does not include the earnings calendar|"
+    r"If you already own the shares|(?:Europa|Callisto)'s data does not include the earnings calendar|"
     r"A bear case and a bull case are two readings|For .{1,60}'s sales, profit and risks)")
 KEY_RX = re.compile(r"^(What it means:|Deeper read:|Bear case:|Bull case:|Pros:|Cons:)")
 

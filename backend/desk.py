@@ -61,24 +61,24 @@ ADVICE_OPEN = ("Here is what Apple's latest annual report (10-K) shows, and what
                "stock:")
 ADVICE_CLOSE = ("Things to weigh before deciding: how the share price compares with these profits (valuation), how "
                 "much of your money is already in one stock, whether you could hold through a drop, and the new "
-                "risks listed in the filing. Europa shows what the filing says; the buy or sell decision stays "
+                "risks listed in the filing. Callisto shows what the filing says; the buy or sell decision stays "
                 "with you.")
 ADVICE_NO_FACTS = ("A view on a stock starts from the company's own reports. Ask about Apple's filings, for example "
                    "how revenue, profit, margins or risk factors changed, and every number in the answer is checked "
                    "against the 10-K.")
-ADVICE_PROMISE = ("No one can honestly promise what a stock will do, and Europa does not make buy or sell calls. "
+ADVICE_PROMISE = ("No one can honestly promise what a stock will do, and Callisto does not make buy or sell calls. "
                   "What it can show is what the filing says, with every number checked.")
-ADVICE_OTHER = ("Europa has checked filing figures for Apple (AAPL), and market data for {who} stock is "
+ADVICE_OTHER = ("Callisto has checked filing figures for Apple (AAPL), and market data for {who} stock is "
                 "not available right now. An analyst deciding on a stock would check: revenue and profit growth in "
                 "the latest annual report, profit margins, cash and debt, the risk factors, and how the share price "
-                "compares with earnings. Ask the same question about Apple to see how Europa answers it with checked "
-                "numbers. Europa shows what the data says; the buy or sell decision stays with you.")
+                "compares with earnings. Ask the same question about Apple to see how Callisto answers it with checked "
+                "numbers. Callisto shows what the data says; the buy or sell decision stays with you.")
 # Another company with market data (Massive): checked price figures in place of the fixed text.
 ADVICE_MKT_OPEN = "Here is the latest market data for {name}, and what it means for someone looking at the stock:"
 ADVICE_MKT_CLOSE = ("Filing figures (sales, profit, margins) are checked for Apple only; for {name} this "
                     "summary uses market data. Things to weigh before deciding: the company's sales and profit growth "
                     "in its latest annual report, how the share price compares with earnings (valuation), how much "
-                    "of your money is already in one stock, and whether you could hold through a drop. Europa shows "
+                    "of your money is already in one stock, and whether you could hold through a drop. Callisto shows "
                     "what the data says; the buy or sell decision stays with you.")
 ADVICE_MKT_Q = ("Judge how {name} stock has done recently, in exactly four short sentences. The first starts "
                 "'Strengths:' and the second starts 'Watch-outs:'; each is at most 14 words with at most one number "
@@ -319,10 +319,10 @@ NOTICE_FILINGS_OTHER = ("Filing figures (sales, profit, margins) are checked for
                         "answer uses market data.")
 NOTICE_FILINGS_OTHER_ASK = ("Filing figures (sales, profit, margins) are checked for Apple only. For {who}, ask "
                             "about the share price, recent returns or the yearly range to get checked market data.")
-NOTICE_NEWS_OTHER = "Europa's headlines follow the selected ticker ({ticker}), so none are listed for another company."
+NOTICE_NEWS_OTHER = "Callisto's headlines follow the selected ticker ({ticker}), so none are listed for another company."
 NOTICE_OUTAGE = "{source} did not respond just now, so that part is left out rather than guessed."
-NOTICE_NOTHING = "Europa has no checked data for that question yet."
-NOTICE_UNKNOWN_TICKER = ("Europa could not find a stock with the ticker {ticker}. Check the symbol, "
+NOTICE_NOTHING = "Callisto has no checked data for that question yet."
+NOTICE_UNKNOWN_TICKER = ("Callisto could not find a stock with the ticker {ticker}. Check the symbol, "
                          "for example AAPL for Apple or NVDA for Nvidia, and ask again.")
 
 
@@ -350,7 +350,7 @@ WAYS = [
      "support it. A high P/E means investors are paying for future growth, not that the stock must fall."),
     ("analysts", r"\banalysts?\b|\bprice targets?\b|\bratings?\b|\bupgrades?\b|\bdowngrades?\b|\bwall street\b|"
                  r"\bconsensus\b",
-     "Analyst ratings and price targets are not on Europa's data plan, so none are shown. To see them, open the "
+     "Analyst ratings and price targets are not on Callisto's data plan, so none are shown. To see them, open the "
      "research or analyst tab at your broker, and read them as opinions that often disagree: check how many "
      "analysts cover the stock, the gap between the lowest and highest target, and the date of each rating."),
     ("risk", r"\bsafe(?:r|ty)?\b|\brisky\b|\bhow risky\b|\bvolatil\w*",
@@ -364,7 +364,7 @@ WAYS = [
      "moved the same way."),
     ("earnings_date", r"\b(?:when|next|upcoming)\b[^?]*\bearnings\b|\bearnings (?:date|call|day|report)\b|"
                       r"\breport(?:s|ing)? earnings\b",
-     "Europa's data does not include the earnings calendar. The company posts its next earnings date on its "
+     "Callisto's data does not include the earnings calendar. The company posts its next earnings date on its "
      "investor relations page, and your broker's calendar shows it too."),
     ("long_term", r"\blong[- ]term\b|\bhold (?:it )?for\b|\bfor (?:the next )?(?:\w+ )?years\b|\bretire\w*",
      "For a long-term view, the yearly numbers matter more than recent price moves: look for sales and profit that "
@@ -443,11 +443,11 @@ def _notices(inp: dict) -> dict:
             out.append("The annual figures were confirmed by a second source (Massive).")
         elif asked_second:
             out.append("The second source (Massive) did not have every figure for both fiscal years, "
-                       "so Europa can't say the annual figures were confirmed.")
+                       "so Callisto can't say the annual figures were confirmed.")
     if exclude:
-        out.append("Two sources disagreed on some figures, so Europa left those out.")
+        out.append("Two sources disagreed on some figures, so Callisto left those out.")
     if inp.get("council_disputed"):
-        out.append("The council models disagreed on some figures, so Europa left those out.")
+        out.append("The council models disagreed on some figures, so Callisto left those out.")
     body = inp["answer"].strip()
     if inp.get("news") and inp.get("writer_ran"):
         # the code notice replaces any writer sentence that only points at the headlines (delete-only, no digits)
@@ -574,7 +574,7 @@ def _pipeline_core(inp: dict, config) -> dict:
         if npack and npack["status"] == "ok":
             status = "ANSWERED"
             answer = (f"Here are recent headlines for {ticker}, word for word from their publishers. "
-                      "Europa has not verified them.")
+                      "Callisto has not verified them.")
             dates = sorted(d for d in (str(n.get("published_utc") or "")[:10] for n in news)
                            if re.fullmatch(r"\d{4}-\d{2}-\d{2}", d))
             if dates:  # fixed, code-built text added with no gate step in this branch; says how fresh the list is
