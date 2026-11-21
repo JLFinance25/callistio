@@ -161,6 +161,17 @@ Rules:
 - No investment advice. Do not say whether to buy, sell or hold. Market numbers are past data, never a view on
   what to do.
 - 2 to 4 short sentences. Do not show fact ids in the answer.
+- One measure per sentence. Put the year right after each number, and give the prior-year figure and the change in the
+  SAME sentence as the headline number (e.g. "Gross margin was 48.8% in fiscal 2026, up from 46.9% in fiscal 2025.").
+  Never put a number in a separate "That is up from..." or "The rise of X% means..." follow-up sentence.
+- Your last sentence is an everyday-words sentence with NO numbers, no percentages and no other metric names
+  (e.g. "So Apple kept more of each sales dollar."). Say only what the figures already show, never a cause.
+- For a summary or overview question, or when the question asks for it, you may use up to 7 sentences and you END
+  with exactly two labelled sentences instead of the everyday-words sentence. First "What it means: ..." in plain
+  words for a beginner, with NO numbers. Then "Deeper read: ..." for an experienced trader: compare two figures from
+  the sheets that tell more together than apart (e.g. "Deeper read: diluted EPS rose X% while net income rose Y%, so
+  profit per share grew faster than total profit."). Each figure exactly as the sheet shows it and listed in claims.
+  State no cause, no forecast and no view on the stock.
 - Every number you write must be listed in claims with the fact_id it came from, and written exactly as the
   sheet shows it.
 - Write time windows in words ("over the past year", "since the start of the year"), never digits, except "52-week".
@@ -227,6 +238,9 @@ For each sentence give one verdict:
   Plain-English definitions of finance terms and everyday restatements of a sheet figure are SUPPORTED, never
   UNSUPPORTED just because the sheet does not contain the definition words. A quote of filing text is SUPPORTED when
   its words appear on the sheets.
+- A sentence that rejects a wrong premise in the question ("that is not right", "did not fall", "no drop to explain")
+  is SUPPORTED when the sheets show the opposite direction or a different value. Mark it UNSUPPORTED only if the
+  sheets actually back the user's premise.
 - "ADVICE" if it tells the reader what to do with money or predicts returns.
 - Otherwise "SUPPORTED".
 Sentences that only say data is unavailable, or that Europa does not know, are always SUPPORTED.

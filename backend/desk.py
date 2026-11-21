@@ -57,25 +57,35 @@ def _massive_available() -> bool:
 
 # Advice questions: never a bare "no". Decline in one line, then give checked facts and what to weigh.
 # Fixed code text with no digits, so the number gate has nothing to cut in it.
-ADVICE_OPEN = ("I can't tell you whether to buy or sell. That depends on your goals, your timeline and what else you "
-               "own, and only a licensed adviser who knows those can say. Here is what Apple's latest 10-K shows, "
-               "which is where an analyst would start:")
+ADVICE_OPEN = ("Here is what Apple's latest annual report (10-K) shows, and what it means for someone looking at the "
+               "stock:")
 ADVICE_CLOSE = ("Things to weigh before deciding: how the share price compares with these profits (valuation), how "
                 "much of your money is already in one stock, whether you could hold through a drop, and the new "
-                "risks listed in the filing.")
-ADVICE_NO_FACTS = ("I can't tell you whether to buy or sell. That depends on your goals, your timeline and what else "
-                   "you own, and only a licensed adviser who knows those can say. I can tell you what Apple's filings "
-                   "say, for example how revenue, margins or risk factors changed.")
-ADVICE_PROMISE = ("I can't promise or guarantee returns, and I can't tell you whether to buy or sell. No one can "
-                  "honestly promise what a stock will do.")
-ADVICE_OTHER = ("I can't tell you whether to buy or sell, and this demo only has filings loaded for Apple (AAPL), so I "
-                "can't show {who} numbers. An analyst deciding on a stock would check: revenue and profit growth in "
+                "risks listed in the filing. Europa shows what the filing says; the buy or sell decision stays "
+                "with you.")
+ADVICE_NO_FACTS = ("A view on a stock starts from the company's own reports. Ask about Apple's filings, for example "
+                   "how revenue, profit, margins or risk factors changed, and every number in the answer is checked "
+                   "against the 10-K.")
+ADVICE_PROMISE = ("No one can honestly promise what a stock will do, and Europa does not make buy or sell calls. "
+                  "What it can show is what the filing says, with every number checked.")
+ADVICE_OTHER = ("In this demo Europa has checked filing figures for Apple (AAPL), and market data for {who} stock is "
+                "not available right now. An analyst deciding on a stock would check: revenue and profit growth in "
                 "the latest annual report, profit margins, cash and debt, the risk factors, and how the share price "
                 "compares with earnings. Ask the same question about Apple to see how Europa answers it with checked "
-                "numbers.")
+                "numbers. Europa shows what the data says; the buy or sell decision stays with you.")
+# Another company with market data (Massive): checked price figures in place of the fixed text.
+ADVICE_MKT_OPEN = "Here is the latest market data for {name}, and what it means for someone looking at the stock:"
+ADVICE_MKT_CLOSE = ("Filing figures (sales, profit, margins) are checked for Apple in this demo; for {name} this "
+                    "summary uses market data. Things to weigh before deciding: the company's sales and profit growth "
+                    "in its latest annual report, how the share price compares with earnings (valuation), how much "
+                    "of your money is already in one stock, and whether you could hold through a drop. Europa shows "
+                    "what the data says; the buy or sell decision stays with you.")
+ADVICE_MKT_Q = ("How has {name} stock done recently? Give the latest closing price, the recent price returns and the "
+                "52-week high and low. End with a 'What it means:' sentence and a 'Deeper read:' sentence.")
 # The question the desk answers, fully checked, in place of "should I buy Apple?"
 ADVICE_BRIEF_Q = ("Summarize Apple's fiscal 2026 versus fiscal 2025 in plain English: revenue growth, net income, "
-                  "gross margin, diluted EPS, cash returned through buybacks, and any new risk factor.")
+                  "gross margin, diluted EPS, cash returned through buybacks, and any new risk factor. "
+                  "End with a 'What it means:' sentence and a 'Deeper read:' sentence.")
 _PROMISE_RX = re.compile(r"\b(guarantee[ds]?|promise[ds]?)\b", re.I)
 _OTHER_NAMES = {"nvidia": "Nvidia", "tesla": "Tesla", "microsoft": "Microsoft", "amazon": "Amazon",
                 "google": "Google", "alphabet": "Alphabet", "meta": "Meta", "samsung": "Samsung",
@@ -100,6 +110,21 @@ def _other_company(ticker: str, question: str):
         return (_OTHER_NAMES.get(w) or _OTHER_TICKERS.get(w.upper()) or "that company") + "'s"
     if ticker not in facts.FACTS:
         return (_OTHER_TICKERS.get(ticker) + "'s") if ticker in _OTHER_TICKERS else "that company's"
+    return None
+
+
+def _other_target(ticker: str, question: str):
+    """(name, ticker or None) of the other company an advice question is about; None when it is about Apple."""
+    m = _OTHER_RX.search(question)
+    if m and not _APPLE_RX.search(question):
+        w = m.group(1).lower()
+        name = _OTHER_NAMES.get(w) or _OTHER_TICKERS.get(w.upper())
+        tk = w.upper() if w.upper() in _OTHER_TICKERS else (
+            "GOOGL" if name == "Google" else next((t for t, n in _OTHER_TICKERS.items() if n == name), None))
+        return name, tk
+    if ticker not in facts.FACTS:
+        return _OTHER_TICKERS.get(ticker, ticker if _valid_ticker(ticker) else "that company"), (
+            ticker if _valid_ticker(ticker) else None)
     return None
 
 
@@ -274,9 +299,19 @@ def _pipeline(inp: dict, config) -> dict:
     ADVICE_BRIEF_Q: skeptic and number gate as usual) and a list of things to weigh. Status stays DECLINED_ADVICE."""
     out = _pipeline_core(inp, config)
     ticker, question = inp["ticker"], inp["question"]
-    if (out.get("status") != "DECLINED_ADVICE" or inp.get("_brief") or _other_company(ticker, question)
-            or _PROMISE_RX.search(question)):
+    if out.get("status") != "DECLINED_ADVICE" or inp.get("_brief") or _PROMISE_RX.search(question):
         return out
+    other = _other_target(ticker, question)
+    if other:  # another company: checked market data when there is some, else the fixed text already in `out`
+        name, tk = other
+        if not tk or not _massive_available():
+            return out
+        brief = _pipeline_core({"ticker": tk, "question": ADVICE_MKT_Q.format(name=name), "_brief": True}, config)
+        if brief.get("status") != "ANSWERED" or not (brief.get("answer") or "").strip():
+            return out
+        return {**brief, "status": "DECLINED_ADVICE", "agents": out["agents"] + brief["agents"],
+                "answer": ADVICE_MKT_OPEN.format(name=name) + "\n\n" + brief["answer"].strip() + "\n\n"
+                          + ADVICE_MKT_CLOSE.format(name=name)}
     brief = _pipeline_core({"ticker": ticker, "question": ADVICE_BRIEF_Q, "_brief": True}, config)
     if brief.get("status") != "ANSWERED" or not (brief.get("answer") or "").strip():
         return out

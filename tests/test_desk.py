@@ -91,7 +91,25 @@ def test_router_advice_declines_then_gives_checked_facts():
     assert "Revenue was $478.8 billion." in out["answer"]
 
 
-def test_advice_about_another_company_gets_the_checklist_not_a_bare_no():
+def test_advice_about_another_company_uses_checked_market_data_when_there_is_some(monkeypatch):
+    """Jayden 2026-11-21: "we should have all this data with massive api". The fixed market question, never the
+    user's advice wording, goes through the normal desk (skeptic and gate) for that company's ticker."""
+    monkeypatch.setattr(desk, "_massive_available", lambda: True)
+    for ticker in ("NVDA", "AAPL"):
+        f = Fakes(route={"specialists": ["market"], "advice": False, "reason": "", "model": "m", "fallback": False},
+                  packs={"market": pack("market", sheet="close 125.53")})
+        out = desk.answer(ticker, "do i invest in nvidia right now", deps=f.deps)
+        assert out["status"] == "DECLINED_ADVICE"
+        assert [(c["ticker"], c["question"]) for c in f.calls["router"]] == [("NVDA", desk.ADVICE_MKT_Q.format(name="Nvidia"))]
+        assert all("do i invest" not in str(c) for c in f.calls["writer"]) and len(f.calls["gate"]) == 1
+        assert out["answer"].startswith(desk.ADVICE_MKT_OPEN.format(name="Nvidia"))
+        assert desk.ADVICE_MKT_CLOSE.format(name="Nvidia") in out["answer"]
+    for t in (desk.ADVICE_MKT_OPEN, desk.ADVICE_MKT_CLOSE):
+        assert not any(ch.isdigit() for ch in t) and not t.lower().startswith("i can't")
+
+
+def test_advice_about_another_company_gets_the_checklist_not_a_bare_no(monkeypatch):
+    monkeypatch.setattr(desk, "_massive_available", lambda: False)  # no market data: the fixed text
     for ticker, q, who in (("NVDA", "do i invest in nvidia right now", "Nvidia's"),
                            ("AAPL", "do i invest in nvidia right now", "Nvidia's"),
                            ("TSLA", "Should I buy Tesla stock?", "Tesla's"),
