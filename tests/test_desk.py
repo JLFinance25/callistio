@@ -11,7 +11,7 @@ FILINGS_SHEET = ("FACTS (id | what | value):\n"
                  "revenue_fy2026 | Net sales (revenue), fiscal 2026 | $478.8 billion\n"
                  "eps_diluted_fy2026 | Diluted earnings per share, fiscal 2026 | $8.98 per share")
 # 2026-11-21 (review hole 6): the notice is fixed text; the raw reason is no longer put into the answer
-MARKET_NOTICE = "Market data is unavailable right now, so I can't answer that part and I won't guess."
+MARKET_NOTICE = "Market data did not respond just now, so that part is left out rather than guessed."
 
 
 def pack(agent, status="ok", **kw):
@@ -149,7 +149,7 @@ def test_market_only_unavailable_is_i_dont_know():
     f = Fakes(route={"specialists": ["market"], "advice": False, "reason": "", "model": "m", "fallback": False},
               packs={"market": pack("market", "unavailable", reason="MASSIVE_API_KEY is not set")})
     out = desk.answer("AAPL", "What was the closing price?", deps=f.deps)
-    assert out["status"] == "I_DONT_KNOW" and "unavailable" in out["answer"]
+    assert out["status"] == "I_DONT_KNOW" and "did not respond" in out["answer"]
     assert f.calls["writer"] == f.calls["skeptic"] == f.calls["gate"] == []
     assert out["unavailable"][0]["agent"] == "market"
     assert out["data_note"].endswith("Market data: unavailable.")

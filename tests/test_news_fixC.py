@@ -6,7 +6,7 @@ from backend import desk, massive, specialists as sp
 from tests.test_desk import Fakes, pack
 from tests.test_specialists import NEWS, _iso, _router  # noqa: F401  (_iso is an autouse fixture)
 
-OTHER = "I only have headlines for Apple (AAPL), so I can't show news about that company."
+OTHER = "Europa's headlines follow the selected ticker (AAPL), so none are listed for another company."
 
 
 @pytest.fixture(autouse=True)

@@ -239,6 +239,15 @@ def _timed(runnable, inp, config):
     return out, time.time() - t0
 
 
+NOTICE_FILINGS_OTHER = ("Filing figures (sales, profit, margins) are checked for Apple in this demo; for {who} this "
+                        "answer uses market data.")
+NOTICE_FILINGS_OTHER_ASK = ("Filing figures (sales, profit, margins) are checked for Apple in this demo. For {who}, ask "
+                            "about the share price, recent returns or the yearly range to get checked market data.")
+NOTICE_NEWS_OTHER = "Europa's headlines follow the selected ticker ({ticker}), so none are listed for another company."
+NOTICE_OUTAGE = "{source} did not respond just now, so that part is left out rather than guessed."
+NOTICE_NOTHING = "Europa has no checked data for that question yet."
+
+
 def _notices(inp: dict) -> dict:
     """Code-written sentences appended to the answer. No model is asked to admit a gap."""
     packs, claims = inp["packs"], inp["claims"]
@@ -248,16 +257,19 @@ def _notices(inp: dict) -> dict:
         if p["status"] != "ok":
             if p["agent"] == "fundamentals" and not asked_second:
                 continue  # an extra check the user did not ask for: shown in sources/unavailable, not in the answer
+            # Jayden 2026-11-21: notices say what the answer is built on, never "I can't". Fixed text, no digits.
             if p["agent"] == "filings" and inp.get("ticker") and inp["ticker"] not in facts.FACTS:
-                # not an outage: filings are only loaded for AAPL
-                out.append("This demo covers Apple (AAPL) only, so I can't answer that and I won't guess.")
+                # not an outage: filing figures are only loaded for AAPL; other tickers are answered from market data
+                who = _OTHER_TICKERS.get(inp["ticker"]) or inp["ticker"]
+                has_market = any(q["agent"] == "market" and q["status"] == "ok" for q in packs)
+                out.append(NOTICE_FILINGS_OTHER.format(who=who) if has_market
+                           else NOTICE_FILINGS_OTHER_ASK.format(who=who))
                 continue
             if p["agent"] == "news" and p.get("reason") == _OTHER_COMPANY_REASON:
-                out.append("I only have headlines for Apple (AAPL), so I can't show news about that company.")
+                out.append(NOTICE_NEWS_OTHER.format(ticker=inp.get("ticker") or "the selected ticker"))
                 continue
             # fixed text only: a raw error reason ("HTTP 503") would put an unchecked number after the gate
-            out.append(f"{LABELS.get(p['agent'], 'A data source')} is unavailable right now, "
-                       "so I can't answer that part and I won't guess.")
+            out.append(NOTICE_OUTAGE.format(source=LABELS.get(p["agent"], "A data source")))
     by = {p["agent"]: p for p in packs}
     market = by.get("market")
     if market and market["status"] == "ok":
@@ -286,7 +298,7 @@ def _notices(inp: dict) -> dict:
         body = " ".join(s for s in checker.split_sentences(body)
                         if not (_HEADLINE_POINTER_RX.search(s) and not re.search(r"\d", s)))
         out.append("Recent headlines are listed below, unverified.")
-    answer = " ".join(s for s in [body, *out] if s)
+    answer = " ".join(s for s in [body, *out] if s) or NOTICE_NOTHING
     return {**inp, "answer": answer, "added": len(out)}
 
 
@@ -397,7 +409,7 @@ def _pipeline_core(inp: dict, config) -> dict:
             if dates:  # fixed, code-built text added with no gate step in this branch; says how fresh the list is
                 answer += f" The newest one is dated {dates[-1]}."
         else:
-            status, answer = "I_DONT_KNOW", "I don't know."
+            status, answer = "I_DONT_KNOW", ""  # the notices say what is and is not covered; see NOTICE_NOTHING
         claims, blocked = [], []
     else:
         # 6. writer

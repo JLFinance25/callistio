@@ -4,7 +4,7 @@ import pytest
 from backend import desk
 from tests.test_desk import Fakes, pack
 
-NOT_APPLE = "This demo covers Apple (AAPL) only"
+NOT_APPLE = "are checked for Apple in this demo"
 
 
 @pytest.fixture(autouse=True)
@@ -22,14 +22,14 @@ def _fakes():
 def test_non_apple_ticker_says_apple_only(t):
     out = desk.answer(t, "What were net sales?", deps=_fakes().deps)
     assert out["status"] == "I_DONT_KNOW"
-    assert NOT_APPLE in out["answer"] and "I won't guess" in out["answer"]
+    assert NOT_APPLE in out["answer"] and "can't" not in out["answer"] and "I don't know" not in out["answer"]
     assert "unavailable right now" not in out["answer"]
 
 
 def test_aapl_outage_keeps_old_message():
     out = desk.answer("AAPL", "What were net sales?", deps=_fakes().deps)
     assert out["status"] == "I_DONT_KNOW"
-    assert "is unavailable right now" in out["answer"] and NOT_APPLE not in out["answer"]
+    assert "did not respond just now" in out["answer"] and NOT_APPLE not in out["answer"]
 
 
 def test_advice_refusal_does_not_offer_apple_filings_for_another_ticker():
@@ -40,3 +40,11 @@ def test_advice_refusal_does_not_offer_apple_filings_for_another_ticker():
     assert out["stop"] == ("DECLINED_ADVICE", other)
     out = desk._guard({"question": "Should I buy Apple stock?", "ticker": "AAPL"})
     assert out["stop"][0] == "DECLINED_ADVICE" and "Apple's filings" in out["stop"][1]
+
+
+def test_notices_never_say_cant_and_hold_no_digits():
+    for t in (desk.NOTICE_FILINGS_OTHER, desk.NOTICE_FILINGS_OTHER_ASK, desk.NOTICE_NEWS_OTHER, desk.NOTICE_OUTAGE,
+              desk.NOTICE_NOTHING):
+        low = t.lower()
+        assert "can't" not in low and "cannot" not in low and "won't" not in low and "don't know" not in low
+        assert not any(ch.isdigit() for ch in t)

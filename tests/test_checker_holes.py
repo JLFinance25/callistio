@@ -235,7 +235,7 @@ def test_h6_raw_error_reason_never_reaches_the_answer(_desk_env):
              "market": _pack("market", status="unavailable", reason="HTTP 503 from upstream, retry in 30 seconds")}
     out = desk.answer("AAPL", "What were net sales and the stock price?", deps=_deps(packs))
     assert "503" not in out["answer"] and "30 seconds" not in out["answer"] and "HTTP" not in out["answer"]
-    assert "Market data is unavailable right now, so I can't answer that part and I won't guess." in out["answer"]
+    assert "Market data did not respond just now, so that part is left out rather than guessed." in out["answer"]
     assert "$478.8 billion" in out["answer"]
     assert out["unavailable"] == [{"agent": "market", "reason": "HTTP 503 from upstream, retry in 30 seconds"}]
 

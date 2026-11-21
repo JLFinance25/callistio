@@ -158,7 +158,7 @@ def test_second_source_notice_only_when_asked(monkeypatch):
     assert plain["unavailable"][0]["agent"] == "fundamentals"
     assert [s["status"] for s in plain["sources"]] == ["ok", "unavailable"]
     asked = desk.answer("AAPL", "Does a second data source confirm Apple's fiscal 2026 revenue?", deps=deps)
-    assert "second-source check is unavailable right now" in asked["answer"]
+    assert "second-source check did not respond just now" in asked["answer"]
     assert all(c["status"] == "VERIFIED" for c in asked["claims"])
 
 
