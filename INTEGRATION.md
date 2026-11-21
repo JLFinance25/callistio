@@ -12,14 +12,18 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 cp .env.example .env        # then fill in your own keys (never commit .env)
 .venv/bin/uvicorn backend.app:app --port 8000
 ```
-- Required in `.env`: `NICRRON_API_KEY` (all model calls go through Nicrron; `NICRRON_BASE_URL` has a default).
+- Required in `.env`: `NICRRON_API_KEY`, your own Nicrron key (all model calls go through Nicrron; `NICRRON_BASE_URL` has a default). Without it the service still starts, but every real question answers "I couldn't produce a checked answer to that." If you see that sentence, check the key first.
 - Optional: `PRISMTRACE_*` (traces to PRISM; without them it runs and says tracing is off),
   `MASSIVE_API_KEY` (stock price, market data, news; without it those parts say "unavailable").
-- Health check: `GET /api/health` → `{"ok": true}`. Switches on: `GET /api/status` (booleans only).
+- Every other line in `.env.example` (`MODEL_*`, `EUROPA_*`, `SEC_USER_AGENT`) can stay as it is.
+- Port 8000 is only an example: change `--port` if the main site already uses it.
+- Tested on a fresh clone with Python 3.14.4 on macOS (2026-11-21). Tests: `.venv/bin/python -m pytest -q` passed, no key needed.
+- Health check: `GET /api/health` → `{"ok": true}`. Switches on: `GET /api/status` → `{"pipeline": "multi", "massive": false, "prism": false}` (no key values; it does not show whether the Nicrron key is set).
 - CORS is open (`*`), so a browser front end on another address can call it directly.
+- Quick test with no model call: `curl -s -X POST http://127.0.0.1:8000/api/ask -H "Content-Type: application/json" -d '{"ticker":"AAPL","question":"Should I buy Apple stock?"}'` → `"status": "DECLINED_ADVICE"`. Then ask a real question to test the key.
 
 ## 2. The one call the main site needs
-`POST /api/ask` with JSON `{"ticker": "AAPL", "question": "How much did R&D spending grow?"}`
+`POST /api/ask` with JSON `{"ticker": "AAPL", "question": "How much did R&D spending grow?"}`. Both fields are required (a missing one returns http 422).
 
 Reply (trimmed):
 ```json
@@ -44,7 +48,7 @@ Reply (trimmed):
 }
 ```
 
-What to show in the UI:
+The real reply also has `pipeline` and `skeptic` (safe to ignore). What to show in the UI:
 | Field | Show it as |
 |---|---|
 | `answer` | The main text. Already safe: anything unchecked was removed before this point. |
@@ -84,5 +88,5 @@ Other addresses: `POST /api/chat` accepts `{"message": "..."}` or OpenAI-style `
 2. **Copy the folder into the main repo** as a sub-folder and run it next to the main backend.
 3. **Port the logic** into the main backend's language: only worth it after the event.
 
-Updates: newer versions (3-model council, more checker fixes) are pushed to this same repo. The `/api/ask`
+Updates: newer versions (3-model council, more checker fixes) will be pushed to this same repo; as of commit 3b962f6 they are not in it yet. The `/api/ask`
 request and the fields above stay the same; new fields may be added.
