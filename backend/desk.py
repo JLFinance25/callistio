@@ -309,7 +309,7 @@ def _pipeline(inp: dict, config) -> dict:
         brief = _pipeline_core({"ticker": tk, "question": ADVICE_MKT_Q.format(name=name), "_brief": True}, config)
         if brief.get("status") != "ANSWERED" or not (brief.get("answer") or "").strip():
             return out
-        return {**brief, "status": "DECLINED_ADVICE", "agents": out["agents"] + brief["agents"],
+        return {**brief, "status": "DECLINED_ADVICE", "agents": out["agents"] + brief["agents"], "_company": name,
                 "answer": ADVICE_MKT_OPEN.format(name=name) + "\n\n" + brief["answer"].strip() + "\n\n"
                           + ADVICE_MKT_CLOSE.format(name=name)}
     brief = _pipeline_core({"ticker": ticker, "question": ADVICE_BRIEF_Q, "_brief": True}, config)
@@ -404,6 +404,7 @@ def _pipeline_core(inp: dict, config) -> dict:
         exclude = {fid for p in packs for fid in p.get("exclude", [])}
         sheets = [_strip_excluded(p["sheet"], exclude) if p["agent"] == "filings" else p["sheet"] for p in writable]
         winp = {"ticker": ticker, "company": facts.COMPANY.get(ticker), "question": question,
+                "long_form": bool(inp.get("_brief")),  # the summary behind an advice question keeps the strong writer
                 "sheets": sheets, "unavailable": unavailable, "has_news": bool(news)}
         w = None
         swapped = deps.council_writer is not None and deps.writer is not deps.council_writer
@@ -509,7 +510,9 @@ def answer(ticker: str, question: str, deps: Deps | None = None) -> dict:
     data_note = ask.DATA_NOTE
     if market_chosen:
         data_note += f" Market data: Massive, end-of-day, as of {as_of}." if as_of else " Market data: unavailable."
-    return {**out, "company": facts.COMPANY.get(ticker),
+    # the company the answer is about: Apple's SEC name, or the other company an advice question named
+    company = out.pop("_company", None) or facts.COMPANY.get(ticker) or _OTHER_TICKERS.get(ticker)
+    return {**out, "company": company,
             "prism_session_id": sid if tracing.handler else None,
             "models": out.get("models") or [], "checker": "on" if ask.checker_on() else "off",
             "seconds": round(time.time() - t0, 2), "data_note": data_note, "disclaimer": ask.DISCLAIMER}

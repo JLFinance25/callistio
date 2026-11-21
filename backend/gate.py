@@ -199,6 +199,8 @@ def _final_check(ticker, draft, packs, verdicts):
             dates = [str(d) for d in own if d]
             extra[fid] = {**f, "dates": dates} if dates else f
         allow_text += [str(x) for x in _as_list(p.get("allow_text")) if x]
+        if "px_52w_high" in extra or "px_52w_low" in extra:
+            allow_text += ["52 weeks", "52-weeks"]  # "over the past 52 weeks": the checker ties the figures to the 52-week facts
         allow_dates += [str(x) for x in _as_list(p.get("allow_dates")) if x]
     model_claims = [c for c in _as_list(draft.get("claims")) if isinstance(c, dict)]
     res = checker.check(ticker, " ".join(kept), model_claims, extra, sorted(exclude))

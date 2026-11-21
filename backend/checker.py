@@ -159,8 +159,8 @@ _FAMILY_RX = {name: re.compile(rx, re.I) for name, rx in {
     "px_close": r"\bclos(?:e|ed|es|ing)\b|\bprices?\b|\bstock\b|\bshares\b(?! (?:outstanding|traded|were traded))|"
                 r"\btrad(?:es|ed|ing) at\b",
     "px_open": r"\bopen(?:ed|ing|s)?\b",
-    "px_high": r"\bhighs?\b|\brang(?:e|ed|ing)\b|\bbetween\s*(?:\$|\Z)",
-    "px_low": r"\blows?\b|\brang(?:e|ed|ing)\b|\bbetween\s*(?:\$|\Z)",
+    "px_high": r"\bhighs?\b|\bhighest\b|\brang(?:e|ed|ing)\b|\bbetween\s*(?:\$|\Z)",
+    "px_low": r"\blows?\b|\blowest\b|\brang(?:e|ed|ing)\b|\bbetween\s*(?:\$|\Z)",
     "volume": r"\bvolume\b|\bshares (?:were )?traded\b|\bchanged hands\b",
     "market_cap": r"\bmarket cap(?:itali[sz]ation)?\b|\bmarket value\b|\bvaluation\b",
     "shares_outstanding": r"\bshares outstanding\b|\boutstanding shares\b|\bshare count\b",
@@ -169,7 +169,7 @@ _FAMILY_RX = {name: re.compile(rx, re.I) for name, rx in {
 }.items()}
 _PERIOD_RX = {name: re.compile(rx, re.I) for name, rx in {
     "1d": r"\b(?:one|1|a|single|past|last|previous|prior|latest)[- ]day\b|\bdaily\b|\bday before\b|\btrading day\b|"
-          r"\bsession\b|\byesterday\b|\bon the day\b",
+          r"\bsession\b|\byesterday\b|\bon the day\b|\btoday\b",
     "1w": r"(?<!52[- ])\bweek\b|\bweekly\b|\b(?:five|5)[- ](?:trading[- ])?days?\b",
     "1m": r"(?<!three[- ])(?<!3[- ])\bmonth\b|\bmonthly\b",
     "3m": r"\b(?:three|3)[- ]months?\b|\bquarter(?:ly)?\b",
@@ -265,6 +265,18 @@ def fact_tags(fid: str) -> dict:
     return {"family": family if family in _FAMILY_RX else None, "year": year, "period": period}
 
 
+_PRIOR_WORD = re.compile(r"\b(?:from|than|prior|previous|preceding|before|earlier|yesterday|versus|vs|compared)\b", re.I)
+_PRIOR_TAIL = re.compile(r"\b(?:day|session) before\b|\b(?:previous|prior|preceding) (?:trading )?(?:day|session|close)\b|\byesterday\b", re.I)
+_PRIOR_STRICT = re.compile(r"\b(?:prior|previous|preceding|yesterday)\b|\b(?:day|session) before\b", re.I)
+# windows the market pack has no return or price for: "over two years", "a month ago", "since 2020"
+_OTHER_WINDOW = re.compile(
+    r"\b(?:two|2|three|3|four|4|five|5|ten|10)[- ]years?\b|\b(?:two|2|four|4|five|5|six|6|seven|7|eight|8|nine|9|ten|10|"
+    r"eleven|11)[- ]months?\b|\b(?:two|2|three|3|four|4)[- ]weeks?\b|\bsince (?:19|20)[0-9]{2}\b|"
+    r"\ball[- ]time\b|\bdecade\b|\bsince (?:inception|its ipo)\b", re.I)
+_AGO_WINDOW = re.compile(r"\b(?:an?|one|two|three|four|five|six|[0-9]+)[- ](?:weeks?|months?|years?) ago\b|"
+                         r"\blast (?:week|month|year|quarter)\b|\bearlier this (?:week|month|year)\b", re.I)
+_CHANGE_WORD = re.compile(r"\b(?:change[ds]?|difference|growth|increase|decrease|swing|delta|year[- ]over[- ]year|yoy|"
+                          r"y/y|compared|versus|vs)\b", re.I)
 _CLOSE_WORD = re.compile(r"\bclos(?:e|ed|es|ing)\b|\btrad(?:es|ed|ing) at\b", re.I)
 
 
@@ -403,16 +415,29 @@ def problem(fid: str, f: dict, stated=None, ctx: dict | None = None, facts: dict
         tags = fact_tags(fid)
         if ctx.get("unknown"):
             return "metric"  # Fix C: the number is attached to a dividend, debt, segment, quarter or other company
+        if "_change_" in fid and not ctx["sign"] and not (_DIR.search(ctx["sentence"]) or _CHANGE_WORD.search(ctx["sentence"])):
+            return "metric"  # a change ($62.7 billion more) written as a level ("revenue was $62.7 billion")
         if fid == "gross_margin_change_pct" and _MARGIN_RATE.search(ctx["gap"]):
             return "metric"  # "gross margin percentage rose 19.7%": 19.7% is the dollar change; the rate moved in points
         if tags["family"] and ctx["families"] and tags["family"] not in ctx["families"]:
-            return "metric"
+            # "closed at $X, down 2.8% from $Y the day before": the percent is the return for the window named
+            if not (tags["family"] == "ret" and ctx["families"] <= {"px_close"}
+                    and (tags["period"] in ctx["periods"] if ctx["periods"] else tags["period"] == "1d")):
+                return "metric"
+        prior_cue = bool(ctx.get("day_before") or _PRIOR_WORD.search(ctx["gap"]) or _PRIOR_TAIL.search(ctx["sentence"]))
+        own_date = bool(ctx["dates"]) and any(
+            d in {_date_key(x) for x in expand_dates(f.get("dates") or [f.get("as_of")])} for d in ctx["dates"])
+        if fid == "px_close_prior" and not prior_cue and not own_date:
+            return "date"  # the prior close is only the prior close when the sentence says "from / before / previous"
+        if fid == "px_close_last" and _PRIOR_STRICT.search(_CLAUSE_SPLIT.split(ctx["gap"])[-1] if ctx["gap"] else ""):
+            return "date"  # "the previous close was $X" with today's close as $X
         if ctx.get("margin_share") and not fid.startswith("gross_margin_pct_fy"):
             return "metric"
         low = ctx["sentence"].lower()
         if fid.startswith("px_52w") and "52" not in low and "year" not in low:
             return "metric"
-        if fid in ("px_high_last", "px_low_last") and re.search(r"52[- ]week", low) and not re.search(
+        if fid in ("px_high_last", "px_low_last") and re.search(
+                r"52[- ]week|\bin a year\b|\b(?:past|last|prior) (?:year|12 months)\b|\byear[- ](?:high|low)\b", low) and not re.search(
                 r"intraday|\bday\b|session", low):
             return "metric"
         if not tags["year"] and "_change_" in fid and tags["family"]:
@@ -437,7 +462,13 @@ def problem(fid: str, f: dict, stated=None, ctx: dict | None = None, facts: dict
             return "year"
         if tags["period"] and ctx["periods"] and tags["period"] not in ctx["periods"]:
             return "period"
-        if ctx.get("day_before") and fid.startswith("px_close"):
+        if tags["period"] and _OTHER_WINDOW.search(ctx["sentence"]):
+            return "period"
+        if fid in ("px_close_last", "px_close_prior", "px_open_last") and _AGO_WINDOW.search(ctx["sentence"]):
+            return "period"
+        if fid == "px_close_prior" and prior_cue:
+            pass  # a sentence about today may name today's date next to "the close the day before"
+        elif ctx.get("day_before") and fid.startswith("px_close"):
             if fid != "px_close_prior":
                 return "date"
         elif (dates := f.get("dates") or ([f["as_of"]] if f.get("as_of") else [])) and ctx["dates"]:
@@ -509,11 +540,14 @@ def verify_quote(ticker: str, quote: str, year: str) -> bool:
 
 
 _QUOTE_RX = re.compile(r'["\u201c]([^"\u201c\u201d]{12,})["\u201d]')
+# Single-quoted words are held to the same rule: an opening quote follows a space or bracket, a closing one is
+# followed by punctuation or a space, and an apostrophe inside a word ("Company's") stays part of the words.
+_SQUOTE_RX = re.compile(r"(?<![\w'\u2019])['\u2018]((?:[^'\u2018\u2019\n]|['\u2019](?=\w)){12,}?)['\u2019](?!\w)")
 
 
 def quoted_spans(text: str) -> list[str]:
     """Text inside double quotes, 12 characters or more: the answer presents it as someone's exact words."""
-    return [m.group(1) for m in _QUOTE_RX.finditer(text or "")]
+    return [m.group(1) for m in _QUOTE_RX.finditer(text or "")] + [m.group(1) for m in _SQUOTE_RX.finditer(text or "")]
 
 
 def split_sentences(text: str) -> list[str]:

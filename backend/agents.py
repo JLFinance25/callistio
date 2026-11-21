@@ -15,6 +15,17 @@ from backend import llm
 
 ROUTER_MODELS = [os.environ.get("MODEL_ROUTER") or llm.MODEL_FAST, "openai/gpt-5.4-mini"]
 WRITER_MODELS = [os.environ.get("MODEL_WRITER") or llm.MODEL_STRONG, "openai/gpt-5.4"]
+# Speed (2026-11-21, measured on 30 and 220 live questions): the strong writer takes about 6 s of a 7 s answer, the
+# fast one about 2 s, with the same checked numbers. Ordinary questions use the fast list; the long summaries behind
+# advice questions (fixed questions, so the provider caches them) keep the strong writer.
+# MODEL_WRITER set, or EUROPA_FAST_WRITER=off, puts every answer back on WRITER_MODELS.
+WRITER_FAST_MODELS = [os.environ.get("MODEL_WRITER_FAST") or "openai/gpt-5.4", llm.MODEL_STRONG]
+
+
+def writer_models(long_form: bool = False) -> list:
+    if long_form or os.environ.get("MODEL_WRITER") or os.environ.get("EUROPA_FAST_WRITER", "on").lower() == "off":
+        return WRITER_MODELS
+    return WRITER_FAST_MODELS
 SKEPTIC_MODELS = [os.environ.get("MODEL_SKEPTIC") or "openai/gpt-5.4-mini", "openai/gpt-5-mini",
                   "mistral/mistral-large-4"]
 NEWS_MODELS = [os.environ.get("MODEL_NEWS") or "openai/gpt-5.4-mini", llm.MODEL_FAST]
@@ -161,8 +172,14 @@ Rules:
 - No investment advice. Do not say whether to buy, sell or hold. Market numbers are past data, never a view on
   what to do.
 - 2 to 4 short sentences. Do not show fact ids in the answer.
+- First sentence: answer the question directly when it can be answered that way ("Yes, that is right.",
+  "No, that is not right.", "Net income grew faster."), then give the figures. Every sentence is a full sentence
+  that names its measure: never write a bare number such as "$20.2 billion." on its own. If asked for a dollar
+  change, write it with its measure and a change word (e.g. "Net income rose by $X to $Y in fiscal 2026.").
 - One measure per sentence. Put the year right after each number, and give the prior-year figure and the change in the
   SAME sentence as the headline number (e.g. "Gross margin was 48.8% in fiscal 2026, up from 46.9% in fiscal 2025.").
+  When the sheet lists the percent change (or the change in percentage points) for that measure, include it in that
+  same sentence, written exactly as the sheet shows it (e.g. "..., up from $X in fiscal 2025, a rise of Y%.").
   Never put a number in a separate "That is up from..." or "The rise of X% means..." follow-up sentence.
 - Your last sentence is an everyday-words sentence with NO numbers, no percentages and no other metric names
   (e.g. "So Apple kept more of each sales dollar."). Say only what the figures already show, never a cause.
@@ -172,6 +189,10 @@ Rules:
   the sheets that tell more together than apart (e.g. "Deeper read: diluted EPS rose X% while net income rose Y%, so
   profit per share grew faster than total profit."). Each figure exactly as the sheet shows it and listed in claims.
   State no cause, no forecast and no view on the stock.
+- Never work out a figure yourself. A ratio, margin, average or difference that is not printed on a sheet (for
+  example operating margin or net margin) must not appear as a number: any number that is not on a sheet is cut.
+  If asked for one, say in the first sentence that the data here does not list it, then give the sheet figures it
+  is built from, each in its own sentence, and end with the everyday-words sentence.
 - Every number you write must be listed in claims with the fact_id it came from, and written exactly as the
   sheet shows it.
 - Write time windows in words ("over the past year", "since the start of the year"), never digits, except "52-week".
@@ -211,7 +232,7 @@ def write(inp: dict, config=None) -> dict:
     from backend import ask  # lazy: ask may import desk, which imports agents
 
     human = writer_human(inp)
-    obj, name = call_json(WRITER_MODELS, WRITER_SYSTEM, human, config, need_key="answer")
+    obj, name = call_json(writer_models(bool(inp.get("long_form"))), WRITER_SYSTEM, human, config, need_key="answer")
     if obj is None:
         return {"draft": dict(FAIL_DRAFT, claims=[]), "model": None}
     draft = ask._parse(json.dumps(obj))
@@ -243,7 +264,9 @@ For each sentence give one verdict:
   sheets actually back the user's premise.
 - "ADVICE" if it tells the reader what to do with money or predicts returns.
 - Otherwise "SUPPORTED".
-Sentences that only say data is unavailable, or that Europa does not know, are always SUPPORTED.
+Sentences that only say data is unavailable, or that Europa does not know, are always SUPPORTED. So is "the data
+here does not cover X" for anything the sheets do not list (a product line such as iPhone or wearables revenue, a
+quarter, a ratio, a forecast, another date): the sheets not listing it is exactly what makes that sentence true.
 The evidence sheets are about the company on the "Company:" line only. If the question names another company
 or ticker, the sheets still describe only that one company: a sentence saying the data does not cover another
 company is SUPPORTED, and a sentence that gives a sheet number as another company's figure is UNSUPPORTED.

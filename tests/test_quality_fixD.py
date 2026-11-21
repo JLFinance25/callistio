@@ -36,3 +36,16 @@ def test_apple_advice_reply_leads_with_data_not_a_refusal():
     for t in (desk.ADVICE_OPEN, desk.ADVICE_NO_FACTS, desk.ADVICE_PROMISE):
         assert not t.lower().startswith(("i can't", "i cannot", "i don't"))
     assert "the buy or sell decision stays with you" in desk.ADVICE_CLOSE
+
+
+def test_fast_writer_for_ordinary_questions_strong_writer_for_long_summaries(monkeypatch):
+    from backend import agents
+    monkeypatch.delenv("MODEL_WRITER", raising=False)
+    monkeypatch.delenv("EUROPA_FAST_WRITER", raising=False)
+    assert agents.writer_models(False) is agents.WRITER_FAST_MODELS
+    assert agents.writer_models(True) is agents.WRITER_MODELS
+    monkeypatch.setenv("EUROPA_FAST_WRITER", "off")
+    assert agents.writer_models(False) is agents.WRITER_MODELS
+    monkeypatch.setenv("EUROPA_FAST_WRITER", "on")
+    monkeypatch.setenv("MODEL_WRITER", "anything")
+    assert agents.writer_models(False) is agents.WRITER_MODELS

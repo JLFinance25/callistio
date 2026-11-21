@@ -135,6 +135,17 @@ def filings(inp: dict) -> dict:
 
 # ---------- market ----------
 
+# Company names for tickers the market path answers (desk.answer's "company" field is None for these
+# because facts.COMPANY only holds Apple). Not wired in yet: see report.
+COMPANY_NAMES = {"AAPL": "Apple Inc.", "NVDA": "NVIDIA Corporation", "TSLA": "Tesla, Inc.",
+                 "MSFT": "Microsoft Corporation", "AMZN": "Amazon.com, Inc.", "GOOGL": "Alphabet Inc.",
+                 "META": "Meta Platforms, Inc.", "NFLX": "Netflix, Inc.", "AMD": "Advanced Micro Devices, Inc.",
+                 "INTC": "Intel Corporation"}
+
+
+def company_name(ticker: str) -> str | None:
+    return sec.COMPANY.get(ticker) or COMPANY_NAMES.get(ticker)
+
 MARKET_SOURCE = "Massive market data (end-of-day)"
 
 
@@ -149,9 +160,14 @@ def _price_facts(bars: list[dict]) -> tuple[dict, str]:
                             ("px_high_last", "h", "Intraday high, last trading day"),
                             ("px_low_last", "l", "Intraday low, last trading day")]:
         f[fid] = _fact(label, last[key], "usd_per_share", src, as_of, fmt_price(last[key]))
+    prior_date = None
     if len(bars) >= 2:
+        # The prior close is the previous BAR (previous trading day), so it carries that bar's own date,
+        # not the latest date (Monday's prior close is Friday's).
         pc = bars[-2]["c"]
-        f["px_close_prior"] = _fact("Closing price, trading day before", pc, "usd_per_share", src, as_of,
+        prior_date = bars[-2]["date"]
+        psrc = f"Massive market data (end-of-day, as of {prior_date})"
+        f["px_close_prior"] = _fact("Closing price, trading day before", pc, "usd_per_share", psrc, prior_date,
                                     fmt_price(pc))
     if last["v"] >= 1_000_000:
         f["volume_last"] = _fact("Shares traded, last trading day", last["v"], "count", src, as_of,
@@ -159,32 +175,40 @@ def _price_facts(bars: list[dict]) -> tuple[dict, str]:
 
     c = last["c"]
 
-    def add_ret(fid, label, base):
-        if base is None:
+    last_d = date.fromisoformat(as_of)
+
+    def add_ret(fid, label, base_bar, lo_days, hi_days):
+        # Skip the fact if the base bar is not roughly the right calendar distance back (gaps in the feed).
+        if base_bar is None:
             return
-        r = _ret(c, base)
+        gap = (last_d - date.fromisoformat(base_bar["date"])).days
+        if not lo_days <= gap <= hi_days:
+            return
+        r = _ret(c, base_bar["c"])
         if r is not None:
             f[fid] = _fact(f"Price return, {label}", r, "pct", rsrc, as_of, fmt_pct(r))
 
-    for fid, back, label in [("ret_1d_pct", 1, "one day"),
-                             ("ret_1w_pct", 5, "one week (five trading days)"),
-                             ("ret_1m_pct", 21, "one month"),
-                             ("ret_3m_pct", 63, "three months")]:
-        add_ret(fid, label, bars[-1 - back]["c"] if len(bars) > back else None)
+    for fid, back, label, lo_d, hi_d in [
+            ("ret_1d_pct", 1, "one day (last close against the close before)", 1, 7),
+            ("ret_1w_pct", 5, "one week (five trading days)", 6, 12),
+            ("ret_1m_pct", 21, "one month (about twenty-one trading days)", 26, 38),
+            ("ret_3m_pct", 63, "three months (about sixty-three trading days)", 84, 105)]:
+        add_ret(fid, label, bars[-1 - back] if len(bars) > back else None, lo_d, hi_d)
 
-    last_d = date.fromisoformat(as_of)
     prev_year = [b for b in bars if date.fromisoformat(b["date"]).year < last_d.year]
-    add_ret("ret_ytd_pct", "year to date", prev_year[-1]["c"] if prev_year else None)
+    add_ret("ret_ytd_pct", "year to date (since the last close of the previous year)",
+            prev_year[-1] if prev_year else None, 1, 20_000)
     year_ago = (last_d - timedelta(days=365)).isoformat()
     older = [b for b in bars if b["date"] <= year_ago]
-    add_ret("ret_1y_pct", "one year", older[-1]["c"] if older else None)
+    add_ret("ret_1y_pct", "one year (against the close nearest one year back)", older[-1] if older else None,
+            365, 380)
 
     window = [b for b in bars if b["date"] > year_ago]
     if window:
         hi = max(b["h"] for b in window)
         lo = min(b["l"] for b in window)
-        f["px_52w_high"] = _fact("52-week high (intraday)", hi, "usd_per_share", src, as_of, fmt_price(hi))
-        f["px_52w_low"] = _fact("52-week low (intraday)", lo, "usd_per_share", src, as_of, fmt_price(lo))
+        f["px_52w_high"] = _fact("52-week high (highest intraday price in the past year)", hi, "usd_per_share", src, as_of, fmt_price(hi))
+        f["px_52w_low"] = _fact("52-week low (lowest intraday price in the past year)", lo, "usd_per_share", src, as_of, fmt_price(lo))
     return f, as_of
 
 
