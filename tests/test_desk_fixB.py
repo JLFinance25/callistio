@@ -48,3 +48,24 @@ def test_notices_never_say_cant_and_hold_no_digits():
         low = t.lower()
         assert "can't" not in low and "cannot" not in low and "won't" not in low and "don't know" not in low
         assert not any(ch.isdigit() for ch in t)
+
+
+def test_ticker_name_uses_massive_for_unknown_tickers(monkeypatch):
+    from backend import desk, massive
+    monkeypatch.setattr(massive, "available", lambda: True)
+    monkeypatch.setattr(massive, "ticker_overview", lambda t: {"name": "lululemon athletica inc."})
+    assert desk._ticker_name("LULU") == "lululemon athletica inc."
+    assert desk._ticker_name("NVDA") == "Nvidia"          # built-in names win
+    assert desk._ticker_name("AAPL") == "Apple Inc."
+    monkeypatch.setattr(massive, "ticker_overview", lambda t: {"name": "3M Company"})
+    assert desk._ticker_name("MMM") is None               # digit in the name: notices fall back to the ticker
+
+
+def test_ticker_name_is_none_when_massive_is_down(monkeypatch):
+    from backend import desk, massive
+
+    def boom(t):
+        raise massive.Unavailable("network", "could not reach Massive")
+    monkeypatch.setattr(massive, "available", lambda: True)
+    monkeypatch.setattr(massive, "ticker_overview", boom)
+    assert desk._ticker_name("LULU") is None

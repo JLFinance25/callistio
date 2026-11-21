@@ -102,6 +102,23 @@ _ADVICE_MORE = [r"\b(do|can|could|would|shall|must) (i|we)\b[^?]*\b(buy|sell|inv
                 r"\binvest(ing)? in (" + "|".join(_OTHER_NAMES) + r")\b"]
 
 
+def _ticker_name(ticker: str):
+    """Company name for a ticker: the built-in names first, then Massive's reference record (cached; the market
+    specialist fetches the same record). None when unknown. Names holding a digit are skipped so code-written
+    notices stay digit-free."""
+    known = facts.COMPANY.get(ticker) or _OTHER_TICKERS.get(ticker)
+    if known or not _valid_ticker(ticker):
+        return known
+    try:
+        from backend import massive
+        if not massive.available():
+            return None
+        name = str(massive.ticker_overview(ticker).get("name") or "").strip()
+    except Exception:
+        return None
+    return name if name and not re.search(r"\d", name) and len(name) <= 60 else None
+
+
 def _other_company(ticker: str, question: str):
     """The other company an advice question is about, as "Nvidia's" / "that company's"; None when it is about Apple."""
     m = _OTHER_RX.search(question)
@@ -123,7 +140,7 @@ def _other_target(ticker: str, question: str):
             "GOOGL" if name == "Google" else next((t for t, n in _OTHER_TICKERS.items() if n == name), None))
         return name, tk
     if ticker not in facts.FACTS:
-        return _OTHER_TICKERS.get(ticker, ticker if _valid_ticker(ticker) else "that company"), (
+        return _ticker_name(ticker) or (ticker if _valid_ticker(ticker) else "that company"), (
             ticker if _valid_ticker(ticker) else None)
     return None
 
@@ -260,7 +277,7 @@ def _notices(inp: dict) -> dict:
             # Jayden 2026-11-21: notices say what the answer is built on, never "I can't". Fixed text, no digits.
             if p["agent"] == "filings" and inp.get("ticker") and inp["ticker"] not in facts.FACTS:
                 # not an outage: filing figures are only loaded for AAPL; other tickers are answered from market data
-                who = _OTHER_TICKERS.get(inp["ticker"]) or inp["ticker"]
+                who = _ticker_name(inp["ticker"]) or inp["ticker"]
                 has_market = any(q["agent"] == "market" and q["status"] == "ok" for q in packs)
                 out.append(NOTICE_FILINGS_OTHER.format(who=who) if has_market
                            else NOTICE_FILINGS_OTHER_ASK.format(who=who))
@@ -523,7 +540,7 @@ def answer(ticker: str, question: str, deps: Deps | None = None) -> dict:
     if market_chosen:
         data_note += f" Market data: Massive, end-of-day, as of {as_of}." if as_of else " Market data: unavailable."
     # the company the answer is about: Apple's SEC name, or the other company an advice question named
-    company = out.pop("_company", None) or facts.COMPANY.get(ticker) or _OTHER_TICKERS.get(ticker)
+    company = out.pop("_company", None) or _ticker_name(ticker)
     return {**out, "company": company,
             "prism_session_id": sid if tracing.handler else None,
             "models": out.get("models") or [], "checker": "on" if ask.checker_on() else "off",
