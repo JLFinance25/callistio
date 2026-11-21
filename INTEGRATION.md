@@ -52,21 +52,28 @@ The real reply also has `pipeline` and `skeptic` (safe to ignore). What to show 
 | Field | Show it as |
 |---|---|
 | `answer` | The main text. Already safe: anything unchecked was removed before this point. |
-| `status` | `ANSWERED`, `I_DONT_KNOW` (honest "the filings don't say"), `DECLINED_ADVICE` ("should I buy?" is refused). |
+| `status` | `ANSWERED`; `I_DONT_KNOW` (no checked data for that question: the `answer` then says what to ask or where to look); `DECLINED_ADVICE` ("should I buy?": no buy or sell call, but the `answer` is a full checked summary plus things to weigh, so show it like any answer). |
 | `claims[]` | Hover or footnote per number: `text`, `status` (`VERIFIED`), `source`. |
 | `blocked[]` | Optional "removed because unverified" list (sentence `text`, `status`, `note`). Good for showing the checker works. |
 | `disclaimer`, `data_note` | Small print under the answer. Keep the disclaimer visible. |
 | `agents[]` | Optional "how this answer was made" steps (name, model, seconds). |
-| `news[]` | Headlines (title, publisher, published_utc, url), word for word, not verified. |
+| `news[]` | Headlines (title, publisher, published_utc, url, summary), word for word, not verified. `summary` is the news feed's own article summary (may be empty). Show it under a clear label such as "As reported, not checked": its numbers are NOT checked. |
+| `charts[]` | Only present when the question asks for a chart or graph. Each item: `type` (`line`, `bar` or `none`), `title`, `unit` (`usd_price`, `usd`, `usd_per_share`, `pct`), `points` (`[{x, y}]`), `source`; for `none`, a `note` instead of points. Data comes straight from SEC facts or Massive closes, never from a model. Reference drawing code (plain SVG, no library): `drawChart` in `backend/static/index.html`. |
 
-Answers take about 2 to 15 seconds. Show a loading state.
+Answers take about 2 to 15 seconds (up to about 20 for a first-time "should I buy" on another ticker). Show a loading state.
+
+Layout of `answer`: plain text. A blank line separates blocks. Sentences may start with the labels `What it means:`, `Deeper read:`, `Bear case:`, `Bull case:`; fixed "how to decide" sentences and source notes (`Market data: ...`) come last. `renderAnswer` in `backend/static/index.html` shows one way to group them (bullets, highlighted labels, a "How to decide" box, small notes).
+
+Questions the desk handles (any wording): filing figures and risk factors (Apple), price, returns, 52-week range and distance from it, market cap, dividends and yield, "what happened / why did it move" (checked move plus reported headlines), bear case / bull case / pros and cons, charts ("6 month chart", "graph revenue"), valuation, safety, analyst and earnings-date questions (checked facts plus where to look).
 
 Other addresses: `POST /api/chat` accepts `{"message": "..."}` or OpenAI-style `{"messages": [...]}`
 (ticker optional, default AAPL; same pipeline, adds `reply`). `GET /` serves a simple test chat page.
 `POST /api/compare` still returns **FAKE placeholder data** (`fake_data: true`). Do not use it in the product.
 
 ## 3. Limits to know before the demo
-- Only **Apple (AAPL)**, fiscal 2025 vs 2026 10-K figures are loaded (`backend/facts.py`). Other tickers answer "I don't know".
+- Filing figures (sales, profit, margins, risk factors) are loaded for **Apple (AAPL)** only, fiscal 2025 vs 2026 (`backend/facts.py`). Any other real ticker is answered from checked Massive market data (price, returns, 52-week range, market cap, dividends) and says so. An unknown ticker gets "could not find a stock with the ticker ...".
+- Not on the current Massive plan: other companies' financial statements and analyst ratings. No P/E ratio yet.
+- Prices come from one source (Massive) and are not cross-checked against a second one.
 - Market data is end-of-day (Massive), not live.
 - Not investment advice: the service refuses buy/sell questions on purpose.
 - Synthetic test material is labeled SYNTHETIC (`scripts/demo_synthetic_wrong_number.py`).
@@ -88,5 +95,5 @@ Other addresses: `POST /api/chat` accepts `{"message": "..."}` or OpenAI-style `
 2. **Copy the folder into the main repo** as a sub-folder and run it next to the main backend.
 3. **Port the logic** into the main backend's language: only worth it after the event.
 
-Updates: newer versions (3-model council, more checker fixes) will be pushed to this same repo; as of commit 3b962f6 they are not in it yet. The `/api/ask`
+Updates: newer versions (3-model council, more checker fixes) will be pushed to this same repo; this guide matches commit 33f7935 (Nov 21, 2026, 3:45 PM ET). The `/api/ask`
 request and the fields above stay the same; new fields may be added.
