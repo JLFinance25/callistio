@@ -39,11 +39,19 @@ def _last_json(text: str, need_key: str | None = None) -> dict | None:
     return found
 
 
+def _EXTRA_PARAMS(model_name: str) -> dict:
+    return {"reasoning_effort": "low", "top_p": 1} if "mistral-large-4" in str(model_name) else {}
+
+
 def call_json(models, system, human, config=None, need_key=None):
     """Try each model in order. Returns (json dict, model name) or (None, None). Never raises."""
     for name in models:
         try:
-            msg = llm.model(name).invoke([("system", system), ("human", human)], config=config)
+            m = llm.model(name)
+            extra = _EXTRA_PARAMS(name)
+            if extra:  # mistral-large-4 is rejected without reasoning_effort and top_p=1 (see council.bind_for)
+                m = m.bind(**extra)
+            msg = m.invoke([("system", system), ("human", human)], config=config)
             content = msg.content if isinstance(msg.content, str) else str(msg.content)
             obj = _last_json(content, need_key)
             if obj is not None:
@@ -166,6 +174,7 @@ Rules:
   its own (e.g. "Gross margin was X% in fiscal 2026."), not only the dollar figure.
 - If a source is listed under UNAVAILABLE, do not guess that part and do not apologise at length; code adds a notice.
 - Never describe news content. If headlines exist you may say that recent headlines are listed below.
+- If the question is a follow-up that depends on an earlier question you cannot see (for example "And the year before?" or "How does that compare?"), say in the first sentence which measure and year you are assuming.
 - If you quote a filing, copy the words exactly and list it in claims as a quote with its filing year.
 
 Reply with JSON only, no other text:
@@ -209,6 +218,15 @@ For each sentence give one verdict:
 - "UNSUPPORTED" only if you can name the evidence line that contradicts it, or the sentence states a cause,
   a direction, a metric/year pairing or a comparison that the evidence does not support.
   A plain "larger / smaller / up / down / more than" statement IS supported when the numbers on the sheets make it true.
+  Mark UNSUPPORTED only when the sentence contradicts a specific figure or direction on the sheets, and in "why" name
+  that figure (its fact id or value). Also UNSUPPORTED: a wrong number, a wrong year, a number attached to the wrong
+  metric, an invented cause (for example "because of iPhone demand"), a forecast.
+- Correct arithmetic consequences of sheet figures are SUPPORTED: a difference between two sheet figures, "grew faster
+  than" when one sheet growth rate is larger than another, "kept more profit from each sales dollar" when a margin
+  percent rose or profit grew faster than sales, "a bigger share of sales" when a cost grew faster than sales.
+  Plain-English definitions of finance terms and everyday restatements of a sheet figure are SUPPORTED, never
+  UNSUPPORTED just because the sheet does not contain the definition words. A quote of filing text is SUPPORTED when
+  its words appear on the sheets.
 - "ADVICE" if it tells the reader what to do with money or predicts returns.
 - Otherwise "SUPPORTED".
 Sentences that only say data is unavailable, or that Europa does not know, are always SUPPORTED.

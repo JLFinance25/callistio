@@ -302,8 +302,23 @@ def fundamentals(inp: dict) -> dict:
 NEWS_SOURCE = "Massive news feed"
 
 
+OTHER_COMPANY_REASON = "the question is about a company other than the ticker's company"
+_OTHER_COMPANIES = re.compile(
+    r"\b(samsung|microsoft|google|alphabet|amazon|tesla|nvidia|meta|facebook|netflix|anthropic|openai|intel|amd|"
+    r"sony|huawei|xiaomi|qualcomm|broadcom|oracle|ibm|dell|hp|lenovo|spotify|disney|walmart|costco|"
+    r"berkshire|jpmorgan|coinbase|palantir|salesforce|adobe|uber|tsmc|foxconn)\b", re.IGNORECASE)
+
+
+def _asks_about_other_company(question: str, ticker: str) -> bool:
+    """True if the question names another company and does not also name the ticker's company or ticker."""
+    q = question or ""
+    return bool(_OTHER_COMPANIES.search(q)) and not _mentions_company(q, ticker)
+
+
 def _news(inp: dict) -> dict:
     t = _ticker(inp)
+    if _asks_about_other_company(str(inp.get("question") or ""), t):
+        return _pack("news", source=NEWS_SOURCE, reason=OTHER_COMPANY_REASON)
     items = []
     for r in massive.news(t, 50):  # one call; extra rows leave room after pitch-style headlines are dropped
         if not isinstance(r, dict):

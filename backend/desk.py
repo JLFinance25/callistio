@@ -24,6 +24,7 @@ SOURCE_NAMES = {"filings": "SEC EDGAR 10-K", "market": "Massive market data (end
 WRITABLE = ("filings", "market", "fundamentals")
 _TICKER_RX = re.compile(r"^[A-Z][A-Z0-9.\-]{0,9}$")
 _SECOND_SOURCE_RX = re.compile(r"second (data )?source|another source|independent source|cross-?\s?check", re.I)
+_OTHER_COMPANY_REASON = "the question is about a company other than the ticker's company"  # = specialists.OTHER_COMPANY_REASON
 _HEADLINE_POINTER_RX = re.compile(r"\bheadlines?\b[^.]*\blisted below\b", re.I)
 _PACK_DEFAULTS = {"reason": None, "source": None, "as_of": None, "facts": {}, "exclude": [], "sheet": "",
                   "allow_text": [], "allow_dates": [], "items": [], "crosscheck": [], "seconds": 0.0}
@@ -176,6 +177,9 @@ def _notices(inp: dict) -> dict:
                 # not an outage: filings are only loaded for AAPL
                 out.append("This demo covers Apple (AAPL) only, so I can't answer that and I won't guess.")
                 continue
+            if p["agent"] == "news" and p.get("reason") == _OTHER_COMPANY_REASON:
+                out.append("I only have headlines for Apple (AAPL), so I can't show news about that company.")
+                continue
             # fixed text only: a raw error reason ("HTTP 503") would put an unchecked number after the gate
             out.append(f"{LABELS.get(p['agent'], 'A data source')} is unavailable right now, "
                        "so I can't answer that part and I won't guess.")
@@ -287,6 +291,10 @@ def _pipeline(inp: dict, config) -> dict:
             status = "ANSWERED"
             answer = (f"Here are recent headlines for {ticker}, word for word from their publishers. "
                       "Europa has not verified them.")
+            dates = sorted(d for d in (str(n.get("published_utc") or "")[:10] for n in news)
+                           if re.fullmatch(r"\d{4}-\d{2}-\d{2}", d))
+            if dates:  # fixed, code-built text added with no gate step in this branch; says how fresh the list is
+                answer += f" The newest one is dated {dates[-1]}."
         else:
             status, answer = "I_DONT_KNOW", "I don't know."
         claims, blocked = [], []

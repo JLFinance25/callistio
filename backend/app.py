@@ -62,8 +62,16 @@ MAX_Q = 2000
 _TICKER_RX = __import__("re").compile(r"[A-Za-z.]{1,10}")
 
 
+_SURR_RX = __import__("re").compile("[\ud800-\udfff]")
+
+
+def _san(s) -> str:
+    """Drop lone UTF-16 surrogates (they crash UTF-8 encoding in logs, tracing and model calls)."""
+    return _SURR_RX.sub("", s) if isinstance(s, str) else s
+
+
 def _clean_ticker(t) -> str:
-    t = str(t or "AAPL").strip()
+    t = _san(str(t or "AAPL")).strip()
     return t.upper() if _TICKER_RX.fullmatch(t) else ""
 
 
@@ -80,7 +88,7 @@ def _validation_error(request, exc):
 
 @app.post("/api/ask")
 def ask(req: AskRequest):
-    ticker, q = _clean_ticker(req.ticker), (req.question or "").strip()
+    ticker, q = _clean_ticker(req.ticker), _san(req.question or "").strip()
     if not ticker:
         return _bad("Please send a stock ticker of up to 10 letters, like AAPL.")
     if not q:
@@ -108,7 +116,7 @@ def chat(body: dict):
             if isinstance(m, dict) and m.get("role", "user") == "user" and _text(m.get("content")).strip():
                 text = _text(m.get("content"))
                 break
-    text = text.strip()
+    text = _san(text).strip()
     ticker = _clean_ticker(body.get("ticker"))
     if not ticker:
         return _bad("Please send a stock ticker of up to 10 letters, like AAPL.")
@@ -143,14 +151,14 @@ def fake_compare(ticker: str) -> dict:
                 "title": "FAKE: new risk factor about a single supplier",
                 "summary": "Placeholder text so the page has something to show.",
                 "claims": [
-                    {"text": "FAKE: Revenue was $100.0 billion", "status": "VERIFIED",
+                    {"text": "SYNTHETIC (placeholder, not checked): Revenue was $100.0 billion", "status": "UNCHECKABLE",
                      "source": "placeholder", "sec_value": 100000000000},
                 ],
             }
         ],
         "blocked": [
-            {"text": "FAKE: Revenue was $120.0 billion", "status": "MISMATCH",
-             "note": "Placeholder: SEC says $100.0B"},
+            {"text": "SYNTHETIC (placeholder): Revenue was $120.0 billion", "status": "MISMATCH",
+             "note": "SYNTHETIC placeholder: SEC says $100.0B"},
         ],
         "cost_usd": 0.0,
         "models": [],

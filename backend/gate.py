@@ -44,8 +44,12 @@ _WORD = (r"(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelv
          r"seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)")
 WORD_NUMBERS = [re.compile(p, re.I) for p in (
     r"\b(?:hundred|thousand|million|billion|trillion)\b",  # a scale word no checked number covers
-    rf"\b{_WORD}(?:[- ]{_WORD})?\s+(?:percent|per cent|percentage points?|basis points?|dollars?|cents?|times)\b",
-    r"\b(?:doubl|tripl|trebl|quadrupl|halv)\w*|\btwice\b|\bthrice\b",
+    rf"\b{_WORD}(?:[- ]{_WORD})?[\s-]+(?:percent|per cent|percentage points?|basis points?|dollars?|cents?|times)\b",
+    r"\b(?:doubl|tripl|trebl|quadrupl|quintupl|sextupl|octupl|halv)\w*|\btwice\b|\bthrice\b",
+    r"\b(?:single|double|triple)[- ]digits?\b",  # a size in words; sweep() lets it through only when the facts agree
+    # "grew by a quarter", "rose a third" (a size). "in the fourth quarter" / "a quarter ago" are not matched.
+    r"\b(?:by|grew|rose|up|down|fell|increased|decreased|dropped|gained|jumped|climbed|declined|shrank)\s+"
+    r"(?:about |roughly |nearly |almost |over |just )?(?:a|one)\s+(?:quarter|third|fifth|tenth)\b",
     rf"\b(?:{_WORD}|[0-9]+)[- ]?fold\b",
     r"\b(?:a|one|by|in|about|roughly|nearly|almost|over|than)\s+half\b|\bhalf (?:of|as)\b",
     r"\b(?:one|two|three|a)[- ](?:third|fifth|tenth)s?\b|\ba quarter of\b",
@@ -55,6 +59,36 @@ _VALID_KINDS = ("usd", "usd_per_share", "pct", "pts", "count")
 
 
 expand_dates = checker.expand_dates  # moved to the checker, which also ties a market number to its date
+
+
+_DIGIT_RATE = re.compile(r"\b(single|double|triple)[- ]digits?\b", re.I)
+_RATE_FACT = {"revenue": "revenue_change_pct", "gross_margin": "gross_margin_change_pct", "rnd": "rnd_change_pct",
+              "operating_income": "operating_income_change_pct", "net_income": "net_income_change_pct",
+              "eps_diluted": "eps_diluted_change_pct", "cash": "cash_change_pct", "buybacks": "buybacks_change_pct"}
+_RATE_UP = re.compile(r"\b(?:grew|grow\w*|rose|rise|rising|increas\w*|up|climb\w*|gain\w*|jump\w*|expand\w*|surg\w*)\b", re.I)
+_RATE_DOWN = re.compile(r"\b(?:fell|fall\w*|declin\w*|decreas\w*|down|dropp?\w*|shr[ua]nk|shrink\w*|slid\w*|contract\w*)\b", re.I)
+
+
+def _digit_rate_ok(sentence: str, word: str) -> bool:
+    """True when "single/double/triple-digit" matches how the sentence's metric really changed (facts.py)."""
+    fams = checker._families(sentence) & set(_RATE_FACT)
+    if not fams:
+        return False
+    pool = checker.fact_pool("AAPL")
+    up, down = bool(_RATE_UP.search(sentence)), bool(_RATE_DOWN.search(sentence))
+    if up and down:
+        return False
+    for fam in fams:
+        f = pool.get(_RATE_FACT[fam])
+        if not f:
+            return False
+        v = float(f["value"])
+        size = abs(v)
+        if {"single": size < 10, "double": 10 <= size < 100, "triple": size >= 100}[word.lower()] is False:
+            return False
+        if (up and v < 0) or (down and v > 0):
+            return False
+    return True
 
 
 def sweep(text: str, allow_text=(), allow_dates=()) -> list[str]:
@@ -83,6 +117,9 @@ def sweep(text: str, allow_text=(), allow_dates=()) -> list[str]:
     for m in YEAR.finditer(text):
         lead = text[:m.start()]
         if not lead.strip() or lead.rstrip()[-1:] in ".!?" or _YEAR_LEAD.search(lead):
+            blank(m.start(), m.end())
+    for m in _DIGIT_RATE.finditer(text):
+        if _digit_rate_ok(text, m.group(1)):
             blank(m.start(), m.end())
     left = "".join(mask)
     return [m.group(0) for m in DIGITS.finditer(left)] + [m.group(0) for rx in WORD_NUMBERS for m in rx.finditer(left)]

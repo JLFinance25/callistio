@@ -159,8 +159,8 @@ _FAMILY_RX = {name: re.compile(rx, re.I) for name, rx in {
     "px_close": r"\bclos(?:e|ed|es|ing)\b|\bprices?\b|\bstock\b|\bshares\b(?! (?:outstanding|traded|were traded))|"
                 r"\btrad(?:es|ed|ing) at\b",
     "px_open": r"\bopen(?:ed|ing|s)?\b",
-    "px_high": r"\bhighs?\b|\brang(?:e|ed|ing)\b|\bbetween\b",
-    "px_low": r"\blows?\b|\brang(?:e|ed|ing)\b|\bbetween\b",
+    "px_high": r"\bhighs?\b|\brang(?:e|ed|ing)\b|\bbetween\s*(?:\$|\Z)",
+    "px_low": r"\blows?\b|\brang(?:e|ed|ing)\b|\bbetween\s*(?:\$|\Z)",
     "volume": r"\bvolume\b|\bshares (?:were )?traded\b|\bchanged hands\b",
     "market_cap": r"\bmarket cap(?:itali[sz]ation)?\b|\bmarket value\b|\bvaluation\b",
     "shares_outstanding": r"\bshares outstanding\b|\boutstanding shares\b|\bshare count\b",
@@ -199,6 +199,21 @@ _THAN_PRIOR = re.compile(r"[^.!?]*?\b(?:was|were|is|came in)\s+(?:(?P<up>higher|
                          r"(?:a|one)\s+year\s+(?:earlier|before|ago)|the\s+(?:prior|previous)\s+(?:fiscal\s+)?year|"
                          r"last\s+(?:fiscal\s+)?year)\b", re.I)
 _LOSS = re.compile(r"\bloss(?:es)?\b", re.I)
+# Fix C: profit written as a loss right before the number ("lost $X", "a negative $X", "in the red by $X")
+_LOSS_TAIL = re.compile(r"(?:\blost|\bloss(?:es)? of|\bnegative|\bin the red(?:\s+(?:by|at))?|\bdeficit of)\s+"
+                        r"(?:(?:about|roughly|nearly|approximately|around|almost|a|an)\s+)*$", re.I)
+# Fix C: things we hold no fact for. Blocks a number only when the word sits in the same clause, before the number.
+_CLAUSE_SPLIT = re.compile(r"[,;:()\u2014\u2013]|\b(?:but|while|whereas|although|though|however|and|so|since|because|"
+                           r"instead|unlike|than|versus|vs)\b", re.I)
+_COMPANIES = r"microsoft|samsung|google|alphabet|amazon|tesla|nvidia|meta|netflix|intel|huawei|xiaomi|sony"
+_UNKNOWN_SCOPE = re.compile(
+    r"\bdividends?\b|\bdebt\b|\bborrowings\b|\b(?:operating|net|profit|ebitda|pre-?tax)\s+margins?\b|"
+    r"\b(?:iphone|mac|ipad|services|wearables|airpods)\s+(?:\w+\s+)?(?:revenue|sales|net sales)\b|"
+    r"\b(?:q[1-4]|(?:first|second|third|fourth)[- ]quarter|quarterly)\b|"
+    rf"\b(?:{_COMPANIES})(?:['\u2019]s)?\s+(?:\w+\s+){{0,3}}?(?:revenue|sales|net sales|income|profit|earnings|eps|"
+    r"cash|buybacks?|margin)\b", re.I)
+_UNKNOWN_AFTER = re.compile(r"\s*(?:in|for|during)\s+(?:the\s+)?(?:q[1-4]\b|(?:first|second|third|fourth)[- ]quarter\b)", re.I)
+_MARGIN_RATE = re.compile(r"\bmargin\s+(?:percentage|rate|ratio)\b|\bmargin\s+(?:percent|%)", re.I)
 _WHY = {"metric": "{label} is a different figure from the one this sentence names.",
         "year": "{label} is for a different fiscal year than this sentence says.",
         "period": "{label} covers a different time window than this sentence says.",
@@ -339,7 +354,9 @@ def context(text: str, num: dict, prev_end: int = 0) -> dict:
     year = inherited_year if not prior else None
     if after:
         year = int(after.group(1))
-    return {"families": families, "gap": gap, "sentence": sentence, "sign": sign,
+    clause = _CLAUSE_SPLIT.split(gap)[-1] if gap else ""
+    unknown = bool(_UNKNOWN_SCOPE.search(clause) or _UNKNOWN_AFTER.match(text[end:hi]))
+    return {"families": families, "gap": gap, "sentence": sentence, "sign": sign, "unknown": unknown,
             "margin_share": margin_share, "prior_after": prior,
             "than_prior": (lambda m: 0 if not m else (1 if m.group("up") else -1))(_THAN_PRIOR.match(text[end:hi])),
             "day_before": bool(_DAY_BEFORE_AFTER.match(text[end:hi])),
@@ -384,6 +401,10 @@ def problem(fid: str, f: dict, stated=None, ctx: dict | None = None, facts: dict
     """Why this fact cannot back the number as written (a key of _WHY), or None if it can."""
     if ctx:
         tags = fact_tags(fid)
+        if ctx.get("unknown"):
+            return "metric"  # Fix C: the number is attached to a dividend, debt, segment, quarter or other company
+        if fid == "gross_margin_change_pct" and _MARGIN_RATE.search(ctx["gap"]):
+            return "metric"  # "gross margin percentage rose 19.7%": 19.7% is the dollar change; the rate moved in points
         if tags["family"] and ctx["families"] and tags["family"] not in ctx["families"]:
             return "metric"
         if ctx.get("margin_share") and not fid.startswith("gross_margin_pct_fy"):
@@ -425,7 +446,7 @@ def problem(fid: str, f: dict, stated=None, ctx: dict | None = None, facts: dict
                 return "date"
         if not is_change_fact(fid) and f["value"] != 0:
             sign = ctx["sign"]
-            loss = tags["family"] in ("net_income", "operating_income") and bool(_LOSS.search(ctx["gap"]))
+            loss = tags["family"] in ("net_income", "operating_income") and bool(_LOSS.search(ctx["gap"]) or _LOSS_TAIL.search(ctx["gap"]))
             if (loss and sign > 0) or ((sign < 0 or loss) != (f["value"] < 0)):
                 return "direction"
         if _level_problem(fid, f, ctx, facts or {}):
