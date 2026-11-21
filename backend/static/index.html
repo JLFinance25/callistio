@@ -61,6 +61,8 @@
   .ans .way{margin-top:10px;padding:10px 12px;border:1px solid var(--line);border-radius:10px}
   .ans .way .wh{font-size:12px;letter-spacing:.06em;color:var(--muted);margin-bottom:4px}
   .ans .notes{margin-top:8px;font-size:12px;color:var(--muted)}
+  .rephead{margin-top:12px;font-size:12px;letter-spacing:.05em;color:var(--muted)}
+  .news li{margin:6px 0} .repsum{color:var(--ink);opacity:.85;font-size:13px;margin-top:2px}
 </style>
 </head>
 <body>
@@ -193,11 +195,12 @@ async function ask(question){
       if(b.text){ const det=el('details','meta'); det.appendChild(el('summary',null,'Show withheld text (not confirmed, do not rely on it)')); det.appendChild(el('s',null,b.text)); p.appendChild(det); }
       wait.appendChild(p); });
     if(d.news && d.news.length){
-      wait.appendChild(el('div','meta','Headlines (word for word from publishers, not verified by Europa)'));
+      wait.appendChild(el('div','rephead','AS REPORTED · publisher text, word for word · not checked by Europa'));
       const ul=el('ul','news');
       d.news.forEach(n=>{ const li=el('li'); const a=el('a',null,n.title||'(untitled)');
         if(n.url && /^https?:\/\//i.test(n.url)){ a.href=n.url; a.target='_blank'; a.rel='noopener noreferrer'; }
         li.appendChild(a); li.appendChild(document.createTextNode(' · '+(n.publisher||'')+' · '+String(n.published_utc||'').slice(0,10)));
+        if(n.summary){ li.appendChild(el('div','repsum',n.summary)); }
         ul.appendChild(li); });
       wait.appendChild(ul);
     }

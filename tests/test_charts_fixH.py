@@ -40,3 +40,11 @@ def test_ask_endpoint_adds_charts_only_when_asked(monkeypatch):
     assert r["charts"][0]["type"] == "bar" and seen["q"] == "Apple revenue"
     r = c.post("/api/ask", json={"ticker": "AAPL", "question": "What was Apple revenue?"}).json()
     assert "charts" not in r and seen["q"] == "What was Apple revenue?"
+
+
+def test_news_summary_is_verbatim_two_sentences_and_drops_pitches():
+    from backend import specialists
+    d = "Shares fell after a report. The company declined to comment. A third sentence follows."
+    assert specialists._news_summary(d) == "Shares fell after a report. The company declined to comment."
+    assert specialists._news_summary(None) == ""
+    assert specialists._news_summary("Here is why you should buy this stock now.") == ""

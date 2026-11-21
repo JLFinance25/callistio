@@ -298,7 +298,7 @@ WAYS = [
      "How to gauge risk: look at the gap between the yearly high and low (bigger swings mean a bumpier ride), "
      "whether the company earns a steady profit, how much debt it carries, and how much of your money sits in this "
      "one stock. No single stock is safe the way a savings account is."),
-    ("why", r"\bwhy\b[^?]*\b(?:down|up|drop\w*|fall\w*|fell|ris\w+|rose|jump\w*|crash\w*|tank\w*|mov\w+|surg\w*|"
+    ("why", r"\bwhat(?:'s| is| has)? (?:happen\w*|going on)\b|\bwhy\b[^?]*\b(?:down|up|drop\w*|fall\w*|fell|ris\w+|rose|jump\w*|crash\w*|tank\w*|mov\w+|surg\w*|"
             r"slid\w*|plung\w*)\b",
      "Price data shows how much a stock moved, not why. To find the cause, check the dated headlines, whether the "
      "company reported earnings or changed its forecast that day, and whether the whole market or its sector "
@@ -431,6 +431,11 @@ def _pipeline(inp: dict, config) -> dict:
                       + " ".join(_ways(question) + [ADVICE_CLOSE])}
 
 
+_WHAT_HAPPENED_RX = re.compile(r"\bwhat(?:'s| is| has)? (?:happen\w*|going on)\b|\bwhy\b[^?]*\b(?:stock|shares?|price|down|up|"
+                               r"drop\w*|fall\w*|fell|ris\w+|rose|jump\w*|crash\w*|tank\w*|mov\w+|surg\w*|slid\w*|"
+                               r"plung\w*)\b", re.I)
+
+
 def _pipeline_core(inp: dict, config) -> dict:
     deps = _DEPS.get() or default_deps()
     ticker, question = inp["ticker"], inp["question"]
@@ -456,6 +461,10 @@ def _pipeline_core(inp: dict, config) -> dict:
     r, s = _timed(deps.router, {"ticker": ticker, "question": question}, config)
     used(r.get("model"))
     chosen = [n for n in r.get("specialists") or [] if n in LABELS] or ["filings"]
+    if _WHAT_HAPPENED_RX.search(question) and not inp.get("_brief"):
+        for n in ("market", "news"):  # "why did it fall / what happened": the move in numbers plus what was reported
+            if n in LABELS and n not in chosen:
+                chosen.append(n)
     if ticker not in facts.FACTS and "market" in LABELS and "market" not in chosen and not inp.get("_brief"):
         chosen.append("market")  # no filings are loaded for this ticker: market data is the checked data there is
     agents.append(_row("desk_router", "model", r.get("model"), "ok" if not r.get("fallback") else "unavailable",
@@ -490,7 +499,7 @@ def _pipeline_core(inp: dict, config) -> dict:
         picked, s = _timed(deps.news_picker, {"question": question, "items": items}, config)
         used(picked.get("model"))
         ids = set(picked.get("ids") or [])
-        news = [{k: it.get(k) for k in ("title", "publisher", "published_utc", "url")}
+        news = [{k: it.get(k) for k in ("title", "publisher", "published_utc", "url", "summary")}
                 for it in items if it.get("id") in ids][:3]
         agents.append(_row("news_picker", "model", picked.get("model"),
                            note=f"picked {len(news)} headline(s)" if picked.get("model") else "first headlines, no model",

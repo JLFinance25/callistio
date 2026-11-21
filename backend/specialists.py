@@ -396,6 +396,17 @@ def _asks_about_other_company(question: str, ticker: str) -> bool:
     return bool(_OTHER_COMPANIES.search(q)) and not _mentions_company(q, ticker)
 
 
+def _news_summary(desc) -> str:
+    """The feed's own article summary, word for word, cut to its first two sentences. Shown on the page as
+    reported and not checked; never given to the writer. Dropped when it reads as a buy/sell pitch."""
+    d = re.sub(r"\s+", " ", str(desc or "")).strip()
+    if not d or ADVICE_HEADLINE.search(d):
+        return ""
+    parts = re.split(r"(?<=[.!?])\s+(?=[A-Z])", d)
+    out = " ".join(parts[:2])
+    return out if len(out) <= 360 else parts[0][:360]
+
+
 def _news(inp: dict) -> dict:
     t = _ticker(inp)
     if _asks_about_other_company(str(inp.get("question") or ""), t):
@@ -411,7 +422,8 @@ def _news(inp: dict) -> dict:
             continue
         pub = r.get("publisher") if isinstance(r.get("publisher"), dict) else {}
         items.append({"id": str(r.get("id") or ""), "title": title, "publisher": pub.get("name") or "",
-                      "published_utc": str(r.get("published_utc") or ""), "url": str(r.get("article_url") or "")})
+                      "published_utc": str(r.get("published_utc") or ""), "url": str(r.get("article_url") or ""),
+                      "summary": _news_summary(r.get("description"))})
         if len(items) >= 8:
             break
     if not items:

@@ -219,7 +219,7 @@ def test_news_only_and_picker():
               packs={"news": pack("news", items=items)})
     out = desk.answer("AAPL", "latest headlines", deps=f.deps)
     assert out["status"] == "ANSWERED" and "Europa has not verified them" in out["answer"]
-    assert len(out["news"]) == 3 and set(out["news"][0]) == {"title", "publisher", "published_utc", "url"}
+    assert len(out["news"]) == 3 and set(out["news"][0]) == {"title", "publisher", "published_utc", "url", "summary"}
     assert f.calls["writer"] == [] and len(f.calls["news"]) == 1
 
 

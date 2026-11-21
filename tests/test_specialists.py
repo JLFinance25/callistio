@@ -236,7 +236,7 @@ def test_news_filters_and_maps(monkeypatch):
     _check_pack(p, "news")
     assert p["status"] == "ok" and p["sheet"] == "" and p["facts"] == {}
     assert p["items"] == [{"id": "n1", "title": "Apple reports record services revenue", "publisher": "Wire A",
-                           "published_utc": "2026-11-20T14:00:00Z", "url": "https://example.com/a"}]
+                           "published_utc": "2026-11-20T14:00:00Z", "url": "https://example.com/a", "summary": ""}]
 
 
 def test_news_drops_number_claims_and_other_companies(monkeypatch):
