@@ -95,7 +95,7 @@ Pick which specialists are needed to answer the question:
 - "market": stock price, closing price, price returns over a period, 52-week range and distance from the
   52-week high or low, market cap, trading volume, dividends per share and dividend yield. Also pick it for
   questions about whether the stock is expensive, overvalued, safe or risky, why it moved, and what analysts
-  think.
+  think. For a bear case, bull case or pros and cons, pick "market" and "filings" together.
 - "fundamentals": whether a second source confirms or agrees with the reported annual figures.
 - "news": recent headlines about the company.
 Pick one or more. Questions about forecasts, price targets or "what will revenue be" go to "filings".
@@ -178,6 +178,15 @@ Rules:
   Never answer "Yes" or "No" unless a sheet figure directly settles it: with only market data on the sheets, a
   question about profit, sales or growth gets the price facts and one sentence saying the data here does not
   list sales or profit, never "Yes". Never write a sentence about a sheet that is missing.
+- If the question asks for a bear case, a bull case, pros and cons, or strengths and weaknesses: write two
+  labelled parts and you may use up to 9 sentences. Start one sentence with "Bear case:" and follow it with 1 to
+  3 more sentences; each gives one sheet fact a cautious investor would point to (a falling price, the distance
+  below the 52-week high, falling profit or margin, a new risk factor) and a few plain words on why it worries
+  them. Start one sentence with "Bull case:" and follow it with 1 to 3 more sentences; each gives one sheet fact
+  an optimistic investor would point to (sales or profit growth, a dividend, market capitalization, a rising
+  price). If only one side was asked for, give that side first and still add the other in one or two sentences.
+  Use only sheet facts, state no forecast, and never say which case is right. End with the "What it means:"
+  sentence.
 - Only when no sheet fact is related at all (a forecast, a price target, a quarter the sheets do not list), set
   status to I_DONT_KNOW and say in one sentence that the data here doesn't cover it.
 - No investment advice. Do not say whether to buy, sell or hold. Market numbers are past data, never a view on

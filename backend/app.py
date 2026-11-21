@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from backend import ask as ask_agent
+from backend import charts
 
 app = FastAPI(title="What Changed")
 
@@ -95,7 +96,12 @@ def ask(req: AskRequest):
         return _bad("Please send a question.")
     if len(q) > MAX_Q:
         return _bad(f"Please keep questions under {MAX_Q} characters.")
-    return ask_agent.answer(ticker, q)
+    if not charts.wanted(q):
+        return ask_agent.answer(ticker, q)
+    out = ask_agent.answer(ticker, charts.strip_chart_words(q))  # the chart is drawn by code, not by the writer
+    if isinstance(out, dict):
+        out["charts"] = charts.charts_for(ticker, q)
+    return out
 
 
 @app.post("/api/chat")

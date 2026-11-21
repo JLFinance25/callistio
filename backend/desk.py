@@ -310,6 +310,10 @@ WAYS = [
     ("long_term", r"\blong[- ]term\b|\bhold (?:it )?for\b|\bfor (?:the next )?(?:\w+ )?years\b|\bretire\w*",
      "For a long-term view, the yearly numbers matter more than recent price moves: look for sales and profit that "
      "grow across several annual reports, steady margins, and risks that are not getting worse."),
+    ("cases", r"\b(?:bear|bull)(?:ish)? (?:case|thesis|argument|view)\b|\bpros and cons\b|\bstrengths and weaknesses\b",
+     "A bear case and a bull case are two readings of the same facts. To weigh them, separate the points about "
+     "the business (sales, profit and the risks in the annual report) from the points that are only about the "
+     "share price, because price moves can reverse quickly."),
     ("sell", r"\bsell(?:ing)?\b|\bget out\b|\bcash out\b",
      "If you already own the shares, the same facts apply, plus two personal ones: whether your reason for buying "
      "still holds, and what tax you would owe on a sale."),

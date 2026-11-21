@@ -38,6 +38,29 @@
   form button { background:var(--accent); color:#fff; border:0; border-radius:8px; padding:0 18px; font:inherit; cursor:pointer; }
   form button:disabled { opacity:.5; cursor:wait; }
   footer { color:var(--muted); font-size:12px; margin-top:24px; }
+  .chart{margin-top:14px;border:1px solid var(--line);border-radius:14px;padding:14px 14px 10px;white-space:normal}
+  .ctitle{font-weight:600;font-size:14px;margin-bottom:6px}
+  .chart svg{width:100%;height:auto;display:block;overflow:visible}
+  .chart .grid{stroke:var(--line);stroke-width:1}
+  .chart .base{stroke:var(--muted);stroke-width:1}
+  .chart .axis{fill:var(--muted);font-size:11px}
+  .chart .val{fill:var(--ink);font-size:12px;font-weight:600}
+  .chart .line{fill:none;stroke:var(--accent);stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+  .chart .dotend{fill:var(--accent);stroke:var(--bg);stroke-width:2}
+  .chart .cross{stroke:var(--muted);stroke-width:1;stroke-dasharray:3 3}
+  .chart .bar{fill:var(--accent)}
+  .cnote{font-size:12px;color:var(--muted);margin-top:6px}
+  .ctip{display:none;position:absolute;background:var(--ink);color:var(--bg);font-size:12px;padding:4px 8px;border-radius:6px;pointer-events:none;white-space:nowrap}
+  .tbl{max-height:200px;overflow:auto}
+  .chart table{border-collapse:collapse;font-size:13px;width:100%}
+  .chart td{padding:3px 6px;border-bottom:1px solid var(--line)}
+  .chart td:last-child{text-align:right;font-variant-numeric:tabular-nums}
+  .ans p{margin:0 0 8px} .ans ul{margin:0 0 8px;padding-left:20px} .ans li{margin:3px 0}
+  .ans .key{border-left:3px solid var(--accent);padding-left:10px}
+  .ans .key b{color:var(--ok)}
+  .ans .way{margin-top:10px;padding:10px 12px;border:1px solid var(--line);border-radius:10px}
+  .ans .way .wh{font-size:12px;letter-spacing:.06em;color:var(--muted);margin-bottom:4px}
+  .ans .notes{margin-top:8px;font-size:12px;color:var(--muted)}
 </style>
 </head>
 <body>
@@ -66,6 +89,85 @@ const STEP = {guard_advice:'guard', desk_router:'router', news_picker:'news pick
               skeptic_review:'skeptic', number_gate:'number gate', notices:'notices'};
 function el(tag, cls, text){ const e=document.createElement(tag); if(cls)e.className=cls; if(text!=null)e.textContent=text; return e; }
 function add(node){ log.appendChild(node); node.scrollIntoView({behavior:'smooth', block:'end'}); }
+// ---- charts (single series: one accent hue, no legend; title names it; hover tooltip; data table)
+const NS = "http://www.w3.org/2000/svg";
+function sv(tag, attrs, text){ const e=document.createElementNS(NS,tag); for(const k in attrs) e.setAttribute(k, attrs[k]); if(text!=null) e.textContent=text; return e; }
+function fmt(v, unit, short){
+  if(unit==="pct") return v.toFixed(1)+"%";
+  if(unit==="usd_per_share" || unit==="usd_price") return "$"+v.toFixed(2);
+  const a=Math.abs(v); if(a>=1e12) return "$"+(v/1e12).toFixed(2)+(short?"T":" trillion"); if(a>=1e9) return "$"+(v/1e9).toFixed(1)+(short?"B":" billion"); if(a>=1e6) return "$"+(v/1e6).toFixed(1)+(short?"M":" million"); return "$"+v.toFixed(0);
+}
+function drawChart(c){
+  const box = el("div","chart"); box.append(el("div","ctitle",c.title));
+  if(c.type==="none"){ box.append(el("div","cnote",c.note||"No chart data.")); return box; }
+  const W=640, H=c.type==="bar"?220:240, L=c.type==="bar"?12:58, R=14, T=14, B=28, pts=c.points, n=pts.length;
+  const svg = sv("svg",{viewBox:`0 0 ${W} ${H}`,role:"img","aria-label":c.title});
+  const tip = el("div","ctip"); box.style.position="relative";
+  if(c.type==="line"){
+    let lo=Math.min(...pts.map(p=>p.y)), hi=Math.max(...pts.map(p=>p.y)); const pad=(hi-lo)*0.08||1; lo-=pad; hi+=pad;
+    const X=i=>L+(W-L-R)*(n===1?0.5:i/(n-1)), Y=v=>T+(H-T-B)*(1-(v-lo)/(hi-lo));
+    for(let k=0;k<=3;k++){ const v=lo+(hi-lo)*k/3, y=Y(v); svg.append(sv("line",{x1:L,x2:W-R,y1:y,y2:y,class:"grid"})); svg.append(sv("text",{x:L-8,y:y+4,"text-anchor":"end",class:"axis"},fmt(v,c.unit,true))); }
+    svg.append(sv("text",{x:L,y:H-8,class:"axis"},pts[0].x)); svg.append(sv("text",{x:W-R,y:H-8,"text-anchor":"end",class:"axis"},pts[n-1].x));
+    svg.append(sv("path",{d:pts.map((p,i)=>(i?"L":"M")+X(i).toFixed(1)+" "+Y(p.y).toFixed(1)).join(" "),class:"line"}));
+    const last=pts[n-1]; svg.append(sv("circle",{cx:X(n-1),cy:Y(last.y),r:4,class:"dotend"}));
+    const cross=sv("line",{y1:T,y2:H-B,class:"cross",visibility:"hidden"}), hov=sv("circle",{r:4.5,class:"dotend",visibility:"hidden"});
+    svg.append(cross,hov);
+    const hit=sv("rect",{x:L,y:T,width:W-L-R,height:H-T-B,fill:"transparent"}); svg.append(hit);
+    const move=e=>{ const r=svg.getBoundingClientRect(); const x=(e.clientX-r.left)*W/r.width; const i=Math.max(0,Math.min(n-1,Math.round((x-L)/(W-L-R)*(n-1))));
+      cross.setAttribute("x1",X(i)); cross.setAttribute("x2",X(i)); cross.setAttribute("visibility","visible");
+      hov.setAttribute("cx",X(i)); hov.setAttribute("cy",Y(pts[i].y)); hov.setAttribute("visibility","visible");
+      tip.textContent=pts[i].x+" · "+fmt(pts[i].y,c.unit); tip.style.display="block";
+      const px=X(i)*r.width/W; tip.style.left=Math.min(Math.max(px-60,0),r.width-130)+"px"; tip.style.top=(Y(pts[i].y)*r.height/H-34)+"px"; };
+    hit.addEventListener("pointermove",move); hit.addEventListener("pointerleave",()=>{tip.style.display="none";cross.setAttribute("visibility","hidden");hov.setAttribute("visibility","hidden");});
+    const first=pts[0].y, chg=(last.y-first)/first*100;
+    box.append(svg, tip, el("div","cnote",`From ${fmt(first,c.unit)} to ${fmt(last.y,c.unit)} (${chg>=0?"+":""}${chg.toFixed(1)}%) · ${c.source}`));
+  } else {
+    const hi=Math.max(...pts.map(p=>p.y))*1.15, bw=Math.min(120,(W-L-R)/n*0.5), Y=v=>T+(H-T-B)*(1-v/hi);
+    svg.append(sv("line",{x1:L,x2:W-R,y1:H-B,y2:H-B,class:"base"}));
+    pts.forEach((p,i)=>{ const cx=L+(W-L-R)*(i+0.5)/n, y=Y(p.y), h=H-B-y, r=Math.min(4,h);
+      const d=`M${cx-bw/2} ${H-B} V${y+r} Q${cx-bw/2} ${y} ${cx-bw/2+r} ${y} H${cx+bw/2-r} Q${cx+bw/2} ${y} ${cx+bw/2} ${y+r} V${H-B} Z`;
+      const bar=sv("path",{d,class:"bar"}); bar.append(sv("title",{},p.x+": "+fmt(p.y,c.unit))); svg.append(bar);
+      svg.append(sv("text",{x:cx,y:y-6,"text-anchor":"middle",class:"val"},fmt(p.y,c.unit,true)));
+      svg.append(sv("text",{x:cx,y:H-8,"text-anchor":"middle",class:"axis"},p.x)); });
+    const a=pts[0].y, z=pts[n-1].y, isPct=c.unit==="pct", chg=isPct?(z-a):(z-a)/Math.abs(a)*100;
+    box.append(svg, el("div","cnote",`${pts[0].x} to ${pts[n-1].x}: ${chg>=0?"+":""}${chg.toFixed(1)}${isPct?" percentage points":"%"} · ${c.source}`));
+  }
+  const d=el("details"); d.append(el("summary",null,"Show data table")); const tb=el("table");
+  pts.slice().reverse().forEach(p=>{ const tr=el("tr"); tr.append(el("td",null,p.x), el("td",null,fmt(p.y,c.unit))); tb.append(tr); });
+  const wrap=el("div","tbl"); wrap.append(tb); d.append(wrap); box.append(d);
+  return box;
+}
+// ---- answer layout (display only: the same sentences, grouped into facts, meaning, how to decide, notes)
+const NOTE_RX=/^(Market data: |Filing figures \(|For .{1,60}, ask about the share price|Recent headlines are listed|The annual figures were confirmed|The second source|Two sources disagreed|The council models|Europa's headlines follow|Here are recent headlines|Europa has not verified them)/;
+const WAY_RX=/^(How to judge the price:|How to gauge risk:|Things to weigh before deciding:|Analyst ratings and price targets are not|Price data shows how much|For a long-term view|If you already own the shares|Europa's data does not include the earnings calendar|A bear case and a bull case are two readings|For .{1,60}'s sales, profit and risks)/;
+const KEY_RX=/^(What it means:|Deeper read:|Bear case:|Bull case:|Pros:|Cons:)/;
+function renderAnswer(text){
+  const box=el('div','ans'); let facts=[], ways=[], notes=[], mode='facts';
+  const flush=()=>{ if(!facts.length) return;
+    if(facts.length>2){ const ul=el('ul'); facts.forEach(t=>ul.appendChild(el('li',null,t))); box.appendChild(ul); }
+    else box.appendChild(el('p',null,facts.join(' ')));
+    facts=[]; };
+  String(text||'').split(/\n\s*\n/).forEach(block=>{
+    block=block.trim(); if(!block) return;
+    if(/:$/.test(block) && block.length<200){ flush(); box.appendChild(el('p',null,block)); return; }
+    block.split(/(?<=[.?!])\s+(?=[A-Z"“'‘$])/).forEach(t=>{
+      t=t.trim(); if(!t) return;
+      if(NOTE_RX.test(t)){ mode='notes'; notes.push(t); return; }
+      if(WAY_RX.test(t)){ mode='way'; ways.push(t); return; }
+      if(mode==='way'){ ways.push(t); return; }
+      if(mode==='notes' && !KEY_RX.test(t)){ notes.push(t); return; }
+      mode='facts';
+      const k=t.match(KEY_RX);
+      if(k){ flush(); const p=el('p','key'); p.appendChild(el('b',null,k[1]+' ')); p.appendChild(document.createTextNode(t.slice(k[1].length).trim())); box.appendChild(p); }
+      else facts.push(t);
+    });
+  });
+  flush();
+  if(ways.length){ const w=el('div','way'); w.appendChild(el('div','wh','HOW TO DECIDE')); w.appendChild(el('div',null,ways.join(' '))); box.appendChild(w); }
+  if(notes.length) box.appendChild(el('div','notes',notes.join(' ')));
+  if(!box.childNodes.length) box.textContent=text||'';
+  return box;
+}
 async function ask(question){
   if(!question.trim()) return;
   add(el('div','msg you',question)); q.value=''; send.disabled=true;
@@ -77,7 +179,9 @@ async function ask(question){
     const d = await r.json(); wait.textContent='';
     const newsOnly = d.status==='ANSWERED' && !(d.claims||[]).length && (d.news||[]).length;
     wait.appendChild(el('div','status','CALLISTO · '+(newsOnly?'HEADLINES · NOT VERIFIED':(LABEL[d.status]||d.status))+(d.checker==='off'?' · CHECKER OFF':'')));
-    wait.appendChild(el('div',null,d.answer));
+    let ansNode; try{ ansNode=renderAnswer(d.answer); }catch(e){ ansNode=el('div',null,d.answer); }
+    wait.appendChild(ansNode);
+    (d.charts||[]).forEach(c=>{ try{ wait.appendChild(drawChart(c)); }catch(e){} });
     if(d.claims && d.claims.length){
       const chips=el('div','chips');
       d.claims.forEach(c=>{ const cls=c.status==='VERIFIED'?'ok':(c.status==='UNCHECKED'?'unchecked':'bad');
