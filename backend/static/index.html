@@ -28,6 +28,8 @@
   .blocked { margin-top:8px; font-size:13px; color:var(--bad); }
   .blocked s { color:var(--muted); }
   .meta { margin-top:6px; font-size:12px; color:var(--muted); }
+  .news { margin:8px 0 0; padding-left:18px; font-size:13px; }
+  .news a { color:var(--ok); }
   .examples { display:flex; flex-wrap:wrap; gap:8px; margin-top:16px; }
   .examples button { background:none; color:var(--muted); border:1px solid var(--line); border-radius:999px; padding:4px 10px; font:inherit; font-size:13px; cursor:pointer; }
   form { position:fixed; left:0; right:0; bottom:0; background:var(--bg); border-top:1px solid var(--line); padding:12px 16px; }
@@ -41,7 +43,7 @@
 <body>
 <main>
   <header>
-    <h1>EUROPA</h1><span class="sub">Ask about a company's filings. Every number is checked against the SEC.</span>
+    <h1>EUROPA</h1><span class="sub">Ask about a company's filings and market data. Every number is checked against its source.</span>
     <label class="ticker">Ticker <input id="ticker" value="AAPL" maxlength="6" aria-label="Ticker"></label>
   </header>
   <div class="examples" id="examples">
@@ -49,27 +51,32 @@
     <button type="button">How did gross margin change?</button>
     <button type="button">What new risk factor appeared this year?</button>
     <button type="button">What will revenue be in 2027?</button>
+    <button type="button">What was Apple's last closing price?</button>
+    <button type="button">Any recent Apple headlines?</button>
     <button type="button">Should I buy Apple stock?</button>
   </div>
   <div id="log" aria-live="polite"></div>
-  <footer>Research aid, not investment advice. Demo data: Apple 10-K fiscal 2026 vs fiscal 2025 (public SEC filings).</footer>
+  <footer>Callisto is Europa's research agent. Research aid, not investment advice. Data: Apple 10-K fiscal 2026 vs fiscal 2025 (public SEC filings); end-of-day market data and headlines from Massive.</footer>
 </main>
-<form id="f"><div><input id="q" placeholder="Ask about the filings…" autocomplete="off" aria-label="Question"><button id="send">Ask</button></div></form>
+<form id="f"><div><input id="q" placeholder="Ask Callisto about filings, prices or headlines…" autocomplete="off" aria-label="Question"><button id="send">Ask</button></div></form>
 <script>
 const log = document.getElementById('log'), q = document.getElementById('q'), send = document.getElementById('send');
 const LABEL = {ANSWERED:'ANSWERED · CHECKED', I_DONT_KNOW:"I DON'T KNOW", DECLINED_ADVICE:'NO INVESTMENT ADVICE'};
+const STEP = {guard_advice:'guard', desk_router:'router', news_picker:'news picker', write_answer:'writer',
+              skeptic_review:'skeptic', number_gate:'number gate', notices:'notices'};
 function el(tag, cls, text){ const e=document.createElement(tag); if(cls)e.className=cls; if(text!=null)e.textContent=text; return e; }
 function add(node){ log.appendChild(node); node.scrollIntoView({behavior:'smooth', block:'end'}); }
 async function ask(question){
   if(!question.trim()) return;
   add(el('div','msg you',question)); q.value=''; send.disabled=true;
-  const wait = el('div','msg bot','Reading the filings…'); add(wait);
+  const wait = el('div','msg bot','Callisto is checking the sources…'); add(wait);
   try{
     const r = await fetch('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({ticker:document.getElementById('ticker').value||'AAPL', question})});
     if(!r.ok) throw new Error('Server error '+r.status);
     const d = await r.json(); wait.textContent='';
-    wait.appendChild(el('div','status',(LABEL[d.status]||d.status)+(d.checker==='off'?' · CHECKER OFF':'')));
+    const newsOnly = d.status==='ANSWERED' && !(d.claims||[]).length && (d.news||[]).length;
+    wait.appendChild(el('div','status','CALLISTO · '+(newsOnly?'HEADLINES · NOT VERIFIED':(LABEL[d.status]||d.status))+(d.checker==='off'?' · CHECKER OFF':'')));
     wait.appendChild(el('div',null,d.answer));
     if(d.claims && d.claims.length){
       const chips=el('div','chips');
@@ -78,8 +85,23 @@ async function ask(question){
         chip.title = c.source || c.note || c.status; chips.appendChild(chip); });
       wait.appendChild(chips);
     }
-    (d.blocked||[]).forEach(b=>{ const p=el('div','blocked','Blocked: '); const s=el('s',null,b.text); p.appendChild(s); p.title=b.note||''; wait.appendChild(p); });
-    wait.appendChild(el('div','meta',`${d.seconds}s · ${(d.models||[]).join(', ')}${d.prism_session_id?' · PRISM '+d.prism_session_id:''}`));
+    (d.blocked||[]).forEach(b=>{ const p=el('div','blocked','Blocked'+(b.status&&b.status!=='BLOCKED'?' ('+b.status+')':'')+': '); const s=el('s',null,b.text); p.appendChild(s); p.title=b.note||''; wait.appendChild(p); });
+    if(d.news && d.news.length){
+      wait.appendChild(el('div','meta','Headlines (word for word from publishers, not verified by Europa)'));
+      const ul=el('ul','news');
+      d.news.forEach(n=>{ const li=el('li'); const a=el('a',null,n.title||'(untitled)');
+        if(n.url && /^https?:\/\//i.test(n.url)){ a.href=n.url; a.target='_blank'; a.rel='noopener noreferrer'; }
+        li.appendChild(a); li.appendChild(document.createTextNode(' · '+(n.publisher||'')+' · '+String(n.published_utc||'').slice(0,10)));
+        ul.appendChild(li); });
+      wait.appendChild(ul);
+    }
+    if(d.agents && d.agents.length){
+      wait.appendChild(el('div','meta','Agents: '+d.agents.map(a=>(STEP[a.name]||String(a.name||'').replace(/^specialist_/,''))+(a.status&&a.status!=='ok'?' ('+a.status+')':'')).join(' · ')));
+    }
+    if(d.sources && d.sources.length){
+      wait.appendChild(el('div','meta','Sources: '+d.sources.map(x=>(x.name||'')+(x.status==='ok'?(x.as_of?' (as of '+x.as_of+')':''):' (unavailable: '+(x.reason||'no reason given')+')')).join(' · ')));
+    }
+    wait.appendChild(el('div','meta',[d.seconds+'s',(d.models||[]).join(', '),d.prism_session_id?'PRISM '+d.prism_session_id:''].filter(Boolean).join(' · ')));
   }catch(e){ wait.textContent='Something went wrong: '+e.message; }
   send.disabled=false; q.focus();
 }

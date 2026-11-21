@@ -37,6 +37,16 @@ def health():
     return {"ok": True}
 
 
+@app.get("/api/status")
+def status():
+    """Which pipeline runs and which data sources are switched on. Booleans only, never key values."""
+    import os
+
+    from backend import massive, tracing
+    return {"pipeline": os.environ.get("EUROPA_PIPELINE", "multi").strip().lower() or "multi",
+            "massive": massive.available(), "prism": tracing.handler is not None}
+
+
 @app.post("/api/compare")
 def compare(req: CompareRequest):
     return fake_compare(req.ticker.upper())
@@ -45,6 +55,26 @@ def compare(req: CompareRequest):
 @app.post("/api/ask")
 def ask(req: AskRequest):
     return ask_agent.answer(req.ticker, req.question)
+
+
+@app.post("/api/chat")
+def chat(body: dict):
+    """Generic chat address for testers like PRISM "Test your AI": accepts {message}, {question}, {input},
+    {prompt} or OpenAI-style {messages:[...]}; ticker optional (default AAPL). Same pipeline as /api/ask."""
+    text = next((body[k] for k in ("message", "question", "input", "prompt", "query")
+                 if isinstance(body.get(k), str) and body[k].strip()), "")
+    msgs = body.get("messages")
+    if not text and isinstance(msgs, list):
+        for m in reversed(msgs):
+            if isinstance(m, dict) and m.get("role", "user") == "user":
+                c = m.get("content")
+                text = c if isinstance(c, str) else " ".join(
+                    p.get("text", "") for p in c if isinstance(p, dict)) if isinstance(c, list) else ""
+                break
+    if not text.strip():
+        return {"answer": "Please send a question.", "reply": "Please send a question.", "status": "I_DONT_KNOW"}
+    out = ask_agent.answer(str(body.get("ticker") or "AAPL"), text[:2000])
+    return {**out, "reply": out.get("answer", ""), "response": out.get("answer", "")}
 
 
 @app.get("/")

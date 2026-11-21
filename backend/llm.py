@@ -21,7 +21,7 @@ MODEL_STRONG = os.environ.get("MODEL_STRONG", "anthropic/claude-sonnet-5-5")  # 
 def model(name: str = MODEL_FAST) -> ChatOpenAI:
     # temperature=0 lets Nicrron cache repeat answers (faster rehearsed demos)
     return ChatOpenAI(model=name, base_url=BASE_URL, api_key=os.environ["NICRRON_API_KEY"],
-                      temperature=0, callbacks=callbacks())
+                      temperature=0, timeout=30, max_retries=1, callbacks=callbacks())
 
 
 def chat(prompt: str, model_name: str = MODEL_FAST, system: str | None = None) -> str:

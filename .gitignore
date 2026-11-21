@@ -10,3 +10,5 @@ __pycache__/
 # cached SEC data can be large; commit only if the team agrees
 backend/sec_cache/
 .DS_Store
+# demo server + tunnel logs
+demo-logs/

@@ -19,8 +19,9 @@ DATA_NOTE = "Data: Apple 10-K fiscal 2026 vs fiscal 2025, public SEC filings."
 _ADVICE = [r"\bshould (i|we)\b[^?]*\b(buy|sell|hold|invest|short|own)\b",
            r"\b(is|it'?s|is it)\b[^?]*\ba (buy|sell|good (investment|stock|buy))\b",
            r"\b(guarantee|promise)\b",
-           r"\b(buy|sell|short)\b(?!\s*back)[^?]*\b(stock|shares)\b",
-           r"\binvest(ing)? in\b", r"\brecommend"]
+           r"\b(buy|sell|short)\b(?!\s*back|-term)[^?]*\b(stock|shares)\b",
+           # "invest in <the company or its stock>" only: "invest in research and development" is a filings question
+           r"\binvest(ing)? in (apple|aapl|it|them|this|that|the (stock|company|shares))\b", r"\brecommend"]
 _INVENT = [r"\bmake up\b", r"\binvent\b", r"\bfabricate\b", r"\bmade[- ]up\b"]
 
 ADVICE_ANSWER = ("I can't give personal investment advice or promise returns. I can tell you what Apple's "
@@ -125,6 +126,17 @@ def checker_on() -> bool:
 
 
 def answer(ticker: str, question: str) -> dict:
+    """EUROPA_PIPELINE=multi (default) runs the research desk; single (or any desk error) runs answer_single()."""
+    if os.environ.get("EUROPA_PIPELINE", "multi").strip().lower() == "single":
+        return answer_single(ticker, question)
+    try:
+        from backend import desk  # inside the function: desk imports ask
+        return desk.answer(ticker, question)
+    except Exception:  # noqa: BLE001  the old single-agent path (which checks numbers) is the safety net
+        return {**answer_single(ticker, question), "pipeline": "single_fallback"}
+
+
+def answer_single(ticker: str, question: str) -> dict:
     ticker = ticker.strip().upper()
     sid = f"ask-{uuid.uuid4().hex[:12]}"
     t0 = time.time()
@@ -134,4 +146,5 @@ def answer(ticker: str, question: str) -> dict:
                                       "metadata": {"ticker": ticker, "checker": checker_on()}})
     return {**out, "company": facts.COMPANY.get(ticker), "prism_session_id": sid if tracing.handler else None,
             "models": [llm.MODEL_STRONG], "checker": "on" if checker_on() else "off",
-            "seconds": round(time.time() - t0, 2), "data_note": DATA_NOTE, "disclaimer": DISCLAIMER}
+            "seconds": round(time.time() - t0, 2), "data_note": DATA_NOTE, "disclaimer": DISCLAIMER,
+            "pipeline": "single"}
