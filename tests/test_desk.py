@@ -71,16 +71,54 @@ def _env(monkeypatch):
     monkeypatch.delenv("EUROPA_SKEPTIC", raising=False)
 
 
-def test_regex_advice_never_reaches_router():
+def test_regex_advice_declines_then_gives_checked_facts():
+    """2026-11-21 (Jayden): never a bare "no". The user's advice question itself never reaches a model; the desk
+    answers a fixed summary question instead, through the normal skeptic and gate."""
     f = Fakes()
     out = desk.answer("aapl", "Should I buy Apple stock?", deps=f.deps)
-    assert out["status"] == "DECLINED_ADVICE" and f.calls["router"] == [] and out["claims"] == []
+    assert out["status"] == "DECLINED_ADVICE"
+    assert [c["question"] for c in f.calls["router"]] == [desk.ADVICE_BRIEF_Q]
+    assert all("Should I buy" not in str(c) for c in f.calls["writer"])
+    assert out["answer"].startswith(desk.ADVICE_OPEN) and out["answer"].endswith(desk.ADVICE_CLOSE)
+    assert "Revenue was $478.8 billion." in out["answer"] and len(f.calls["gate"]) == 1
 
 
-def test_router_advice_declines():
+def test_router_advice_declines_then_gives_checked_facts():
     f = Fakes(route={"specialists": ["filings"], "advice": True, "reason": "", "model": "m", "fallback": False})
     out = desk.answer("AAPL", "Is now the moment to get out of Apple?", deps=f.deps)
-    assert out["status"] == "DECLINED_ADVICE" and f.calls["writer"] == [] and f.spec_calls == []
+    assert out["status"] == "DECLINED_ADVICE" and out["answer"].startswith(desk.ADVICE_OPEN)
+    assert all("get out of Apple" not in str(c) for c in f.calls["writer"])
+    assert "Revenue was $478.8 billion." in out["answer"]
+
+
+def test_advice_about_another_company_gets_the_checklist_not_a_bare_no():
+    for ticker, q, who in (("NVDA", "do i invest in nvidia right now", "Nvidia's"),
+                           ("AAPL", "do i invest in nvidia right now", "Nvidia's"),
+                           ("TSLA", "Should I buy Tesla stock?", "Tesla's"),
+                           ("ZZZZ", "Should I buy this stock?", "that company's")):
+        f = Fakes()
+        out = desk.answer(ticker, q, deps=f.deps)
+        assert out["status"] == "DECLINED_ADVICE" and out["answer"] == desk.ADVICE_OTHER.format(who=who), (ticker, q)
+        assert f.calls["router"] == [] and f.calls["writer"] == []
+        assert not any(ch.isdigit() for ch in out["answer"])
+
+
+def test_promise_question_is_a_plain_decline_plus_things_to_weigh():
+    f = Fakes()
+    out = desk.answer("AAPL", "Can you guarantee Apple stock will go up?", deps=f.deps)
+    assert out["status"] == "DECLINED_ADVICE" and out["answer"] == desk.ADVICE_PROMISE + " " + desk.ADVICE_CLOSE
+    assert f.calls["router"] == []
+
+
+def test_advice_falls_back_to_fixed_text_when_the_summary_cannot_be_checked():
+    f = Fakes(gate_result={"status": "I_DONT_KNOW", "answer": "I couldn't verify that.", "claims": [], "blocked": []})
+    out = desk.answer("AAPL", "Should I buy Apple stock?", deps=f.deps)
+    assert out["status"] == "DECLINED_ADVICE" and out["answer"] == desk.ADVICE_NO_FACTS + " " + desk.ADVICE_CLOSE
+
+
+def test_fixed_advice_texts_hold_no_digits():
+    for t in (desk.ADVICE_OPEN, desk.ADVICE_CLOSE, desk.ADVICE_NO_FACTS, desk.ADVICE_PROMISE, desk.ADVICE_OTHER):
+        assert not any(ch.isdigit() for ch in t.replace("10-K", ""))  # added after the gate; "10-K" is a form name
 
 
 def test_unknown_ticker_without_massive_stops_in_guard():

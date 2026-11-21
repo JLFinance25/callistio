@@ -238,7 +238,7 @@ def test_swapped_writer_is_never_replaced_by_the_council():
 def test_guard_stop_and_advice_never_reach_the_council():
     calls = []
     f = deps_with([member(k, draft(), calls=calls) for k in ("claude", "gpt", "mistral")])
-    out = desk.answer("AAPL", "Should I buy Apple stock?", deps=f.deps)
+    out = desk.answer("NVDA", "Should I buy Nvidia stock?", deps=f.deps)  # other company: fixed text, no models
     assert out["status"] == "DECLINED_ADVICE" and calls == [] and "council" not in out
 
 

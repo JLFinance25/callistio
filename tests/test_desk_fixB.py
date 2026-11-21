@@ -33,11 +33,10 @@ def test_aapl_outage_keeps_old_message():
 
 
 def test_advice_refusal_does_not_offer_apple_filings_for_another_ticker():
-    from backend import desk, ask
-    assert desk._advice_answer("AAPL") == ask.ADVICE_ANSWER
-    other = desk._advice_answer("TSLA")
-    assert "investment advice" in other and "Apple (AAPL) only" in other and "Apple's filings" not in other
+    from backend import desk
+    other = desk._advice_answer("TSLA", "Should I buy Tesla stock?")
+    assert "Apple (AAPL)" in other and "Tesla's numbers" in other and "what Apple's filings say" not in other
     out = desk._guard({"question": "Should I buy Tesla stock?", "ticker": "TSLA"})
     assert out["stop"] == ("DECLINED_ADVICE", other)
     out = desk._guard({"question": "Should I buy Apple stock?", "ticker": "AAPL"})
-    assert out["stop"] == ("DECLINED_ADVICE", ask.ADVICE_ANSWER)
+    assert out["stop"][0] == "DECLINED_ADVICE" and "Apple's filings" in out["stop"][1]
