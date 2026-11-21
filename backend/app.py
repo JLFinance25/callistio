@@ -186,6 +186,8 @@ def _claim_check(q: str, sent: str):
         out = claimcheck.check(claim, _resolve_ticker(claim, sent))
         if not isinstance(out, dict) or not str(out.get("answer") or "").strip():
             return None
+        if out.get("verdict") == "NOTHING TO CHECK":   # no number in it: let the normal desk answer
+            return None
         out.setdefault("followups", ["Check this: Apple's revenue was $500 billion in fiscal 2026",
                                      "Check this: Nvidia fell 14% on Friday", "How do you check the numbers?"])
         return out

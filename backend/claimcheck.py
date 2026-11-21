@@ -26,6 +26,11 @@ _LEAD = re.compile(
 _TAIL = re.compile(r"^(.+?)[\s,.;:\-–]+(?:is (?:that|this|it) (?:right|true|correct|accurate)|true or false|"
                    r"(?:can|could) you (?:check|verify|confirm)(?: (?:that|this))?|fact[- ]?check(?: (?:that|this))?)\W*$",
                    re.I | re.S)
+# A request for advice or a forecast is not a statement to check: the advice guard and the desk handle those.
+_NOT_A_CLAIM = re.compile(r"\b(?:should|shall|buy|buying|sell|selling|hold|holding|invest\w*|recommend\w*|will|gonna|"
+                          r"going to|tomorrow|next (?:week|month|quarter|year)|forecast\w*|predict\w*|target)\b", re.I)
+_WEEKDAY = re.compile(r"\b(mon|tues|wednes|thurs|fri|satur|sun)day\b", re.I)
+_DAY_FACT = re.compile(r"closing price|one day|intraday|opening price|trading day", re.I)
 _MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 _DAY = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 MEANS = {
@@ -60,9 +65,23 @@ def wanted(q: str):
     else:
         t = _TAIL.match(s)       # "X. Is that right?"
         claim = _clean(t.group(1)) if t else None
-    if not claim or not re.search(r"\d", claim):
+    if not claim or not re.search(r"\d", claim) or _NOT_A_CLAIM.search(claim):
         return None
     return claim
+
+
+def _other_day(text: str, f: dict):
+    """The weekday the statement names, when the matched figure belongs to a different day; else None."""
+    days = {m.group(1).lower() for m in _WEEKDAY.finditer(text)}
+    if len(days) != 1 or not _DAY_FACT.search(str(f.get("label") or "")):
+        return None
+    try:
+        d = date.fromisoformat(str(f.get("as_of"))[:10])
+    except Exception:
+        return None
+    named = ["mon", "tues", "wednes", "thurs", "fri", "satur", "sun"].index(days.pop())
+    return None if named == d.weekday() else ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
+                                              "Sunday"][named]
 
 
 def _human(iso) -> str:
@@ -147,9 +166,18 @@ def check(claim: str, ticker: str) -> dict:
                 f = pool[c["fact_id"]]
                 item.update(verdict="MATCH", source=_src(f), source_value=_show(f), as_of=f.get("as_of"),
                             reason=f"{f['label']}: {_show(f)} ({_src(f)}).")
+                off = _other_day(text, f)
+                if off:   # right value, wrong day: never a MATCH
+                    item.update(verdict="WRONG", reason=f"the value is in the source, but for {_human(f.get('as_of'))}, "
+                                                        f"not {off}. {f['label']}: {_show(f)} ({_src(f)}).")
             else:
                 f = _correction(pool, all_facts, num, ctx)
-                if f:
+                off = _other_day(text, f) if f else None
+                if off:   # the source holds this measure for another day only: no verdict on the day asked
+                    item.update(verdict="NOT IN SOURCE",
+                                reason=f"Callisto holds this figure for {_human(f.get('as_of'))}, not for {off}, so it "
+                                       f"cannot check a {off} number.")
+                elif f:
                     why = ("the source shows the opposite direction. " if "Direction" in str(c.get("note") or "") else "")
                     item.update(verdict="WRONG", source=_src(f), source_value=_show(f), as_of=f.get("as_of"),
                                 reason=f"{why}The source says {f['label']}: {_show(f)} ({_src(f)}).")
