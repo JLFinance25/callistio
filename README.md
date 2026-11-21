@@ -1,6 +1,8 @@
-# What Changed (REFERENCE ONLY: the team builds in its own repo)
+# Europa: the Callisto research desk
 
-What's new in a company's latest SEC filing versus the one before, with every number and quote checked against the source. Built at Money Talks #3 (Nov 21, 2026). Research aid, not investment advice.
+Ask a question about a public company and get a plain-English answer where every number was checked against its source (SEC filings, Massive market data) before it is shown. Callisto is the agent that answers. Built at Money Talks #3 (Nov 21, 2026). Research aid, not investment advice.
+
+Connecting it to another site: see `INTEGRATION.md`.
 
 ## Run it
 ```bash
