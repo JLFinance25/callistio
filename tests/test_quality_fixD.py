@@ -26,8 +26,11 @@ def test_skeptic_accepts_premise_rejection_but_not_advice():
 
 def test_writer_has_the_what_it_means_and_deeper_read_rule():
     from backend import agents, desk
-    assert '"What it means: ..."' in agents.WRITER_SYSTEM and '"Deeper read: ..."' in agents.WRITER_SYSTEM
-    assert "What it means:" in desk.ADVICE_BRIEF_Q and "Deeper read:" in desk.ADVICE_BRIEF_Q
+    w = agents.WRITER_SYSTEM
+    assert '"What it means: ..."' in w and '"Deeper read: ..."' in w and "At most 110 words" in w
+    for q in (desk.ADVICE_BRIEF_Q, desk.ADVICE_MKT_Q):
+        assert all(k in q for k in ("Strengths:", "Watch-outs:", "What it means:", "Deeper read:"))
+        assert "period words" in q   # checker rule: a number keeps its time window
 
 
 def test_apple_advice_reply_leads_with_data_not_a_refusal():

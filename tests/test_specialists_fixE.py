@@ -32,7 +32,7 @@ def test_market_pack_labels_and_prior_fact_date(monkeypatch):
     monkeypatch.setattr(massive, "daily_bars", lambda *a, **k: bars)
     monkeypatch.setattr(massive, "ticker_overview", lambda t: {})
     p = sp.market({"ticker": "AAPL", "question": ""})
-    assert p["as_of"] == "2026-11-16" and p["allow_dates"] == ["2026-11-16"]
+    assert p["as_of"] == "2026-11-16" and p["allow_dates"] == ["2026-11-16", "2026-11-13"]
     assert p["facts"]["px_close_prior"]["as_of"] == "2026-11-13"
     assert "highest intraday price in the past year" in p["sheet"]
     assert "last close against the close before" in p["sheet"]

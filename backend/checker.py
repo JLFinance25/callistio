@@ -171,8 +171,9 @@ _PERIOD_RX = {name: re.compile(rx, re.I) for name, rx in {
     "1d": r"\b(?:one|1|a|single|past|last|previous|prior|latest)[- ]day\b|\bdaily\b|\bday before\b|\btrading day\b|"
           r"\bsession\b|\byesterday\b|\bon the day\b|\btoday\b",
     "1w": r"(?<!52[- ])\bweek\b|\bweekly\b|\b(?:five|5)[- ](?:trading[- ])?days?\b",
-    "1m": r"(?<!three[- ])(?<!3[- ])\bmonth\b|\bmonthly\b",
+    "1m": r"(?<!three[- ])(?<!3[- ])(?<!six[- ])(?<!6[- ])\bmonth\b|\bmonthly\b",
     "3m": r"\b(?:three|3)[- ]months?\b|\bquarter(?:ly)?\b",
+    "6m": r"\b(?:six|6)[- ]months?\b|\bhalf[- ]year\b|\bhalf a year\b",
     "ytd": r"\byear[- ]to[- ]date\b|\bytd\b|\b(?:start|beginning) of (?:the|this) year\b|\bthis year\b|\bso far in\b",
     "1y": r"\b(?:one|1|a|past|last|previous|prior|trailing)[- ]year\b|\b(?:12|twelve)[- ]months?\b|"
           r"\b52[- ]weeks?\b(?! (?:high|low|range))",
@@ -193,6 +194,11 @@ _PRIOR_AFTER = re.compile(r"\s*,?\s*(?:in\s+|for\s+)?(?:the\s+year\s+before|the\
 # "$226.10 the day before": the number is the prior session's close, whatever date the sentence names.
 _DAY_BEFORE_AFTER = re.compile(r"\s*,?\s*(?:on\s+)?(?:the\s+(?:day|session|trading day)\s+before|the\s+(?:prior|previous)\s+"
                                r"(?:day|session|trading day|close)|a\s+day\s+earlier)\b", re.I)
+# "$33.02 on the last trading day, down from $35.08 on 2026-11-19": the first number is the latest close even
+# though the only date in the sentence belongs to the close before.
+_LAST_DAY_AFTER = re.compile(r"\s*,?\s*(?:on|at|as of)\s+the\s+(?:last|latest|most recent)\s+"
+                             r"(?:trading day|trading session|session|close)\b", re.I)
+_LAST_DAY_ANY = re.compile(r"\b(?:on|at|as of)\s+the\s+(?:last|latest|most recent)\s+(?:trading day|trading session|session|close)\b", re.I)
 # "$478.8 billion in fiscal 2026 was lower than the year before": a level compared with the prior year.
 _THAN_PRIOR = re.compile(r"[^.!?]*?\b(?:was|were|is|came in)\s+(?:(?P<up>higher|larger|greater|bigger|more)|"
                          r"(?P<down>lower|smaller|less|weaker))\s+than\s+(?:in\s+)?(?:the\s+year\s+before|"
@@ -270,7 +276,7 @@ _PRIOR_TAIL = re.compile(r"\b(?:day|session) before\b|\b(?:previous|prior|preced
 _PRIOR_STRICT = re.compile(r"\b(?:prior|previous|preceding|yesterday)\b|\b(?:day|session) before\b", re.I)
 # windows the market pack has no return or price for: "over two years", "a month ago", "since 2020"
 _OTHER_WINDOW = re.compile(
-    r"\b(?:two|2|three|3|four|4|five|5|ten|10)[- ]years?\b|\b(?:two|2|four|4|five|5|six|6|seven|7|eight|8|nine|9|ten|10|"
+    r"\b(?:two|2|three|3|four|4|five|5|ten|10)[- ]years?\b|\b(?:two|2|four|4|five|5|seven|7|eight|8|nine|9|ten|10|"
     r"eleven|11)[- ]months?\b|\b(?:two|2|three|3|four|4)[- ]weeks?\b|\bsince (?:19|20)[0-9]{2}\b|"
     r"\ball[- ]time\b|\bdecade\b|\bsince (?:inception|its ipo)\b", re.I)
 _AGO_WINDOW = re.compile(r"\b(?:an?|one|two|three|four|five|six|[0-9]+)[- ](?:weeks?|months?|years?) ago\b|"
@@ -372,6 +378,7 @@ def context(text: str, num: dict, prev_end: int = 0) -> dict:
             "margin_share": margin_share, "prior_after": prior,
             "than_prior": (lambda m: 0 if not m else (1 if m.group("up") else -1))(_THAN_PRIOR.match(text[end:hi])),
             "day_before": bool(_DAY_BEFORE_AFTER.match(text[end:hi])),
+            "last_day_after": bool(_LAST_DAY_AFTER.match(text[end:hi])),
             "year": year, "year_end": year_start + after.end() if after else end,
             "gap_years": {int(y) for y in _YEAR_ANY.findall(gap)},
             "sent_years": {int(y) for y in _YEAR_ANY.findall(sentence)},
@@ -478,7 +485,15 @@ def problem(fid: str, f: dict, stated=None, ctx: dict | None = None, facts: dict
         elif (dates := f.get("dates") or ([f["as_of"]] if f.get("as_of") else [])) and ctx["dates"]:
             forms = {_date_key(x) for x in expand_dates(dates)}
             if not any(d in forms for d in ctx["dates"]):
-                return "date"
+                # "$X on the last trading day, down from $Y on <prior date>": allowed only when every date in the
+                # sentence is the prior close's own date
+                pr = (facts or {}).get("px_close_prior") or {}
+                pr_forms = {_date_key(x) for x in expand_dates([pr["as_of"]])} if pr.get("as_of") else set()
+                last_close = fid == "px_close_last" and ctx.get("last_day_after")
+                # "... on the last trading day, down from $Y on <prior date>, and price return was -6.3% over one day"
+                day_move = fid == "ret_1d_pct" and bool(_LAST_DAY_ANY.search(ctx["sentence"]))
+                if not ((last_close or day_move) and pr_forms and all(d in pr_forms for d in ctx["dates"])):
+                    return "date"
         if not is_change_fact(fid) and f["value"] != 0:
             sign = ctx["sign"]
             loss = tags["family"] in ("net_income", "operating_income") and bool(_LOSS.search(ctx["gap"]) or _LOSS_TAIL.search(ctx["gap"]))

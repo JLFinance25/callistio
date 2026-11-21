@@ -107,7 +107,7 @@ def test_market_synthetic_series(monkeypatch):
             assert not any(ch.isdigit() for ch in fa["label"]), fa["label"]
     assert p["sheet"].startswith("MARKET DATA (Massive, end-of-day, as of 2026-11-20; id | what | value):")
     assert "px_close_last | Closing price, last trading day | $249.50" in p["sheet"]
-    assert p["allow_text"] == ["52-week"] and p["allow_dates"] == ["2026-11-20"]
+    assert p["allow_text"] == ["52-week", "6 months", "6-month", "6 month"] and p["allow_dates"] == ["2026-11-20", "2026-11-19"]
 
 
 def test_market_overview_fails_keeps_prices(monkeypatch):

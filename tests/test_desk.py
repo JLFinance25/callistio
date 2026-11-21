@@ -79,14 +79,14 @@ def test_regex_advice_declines_then_gives_checked_facts():
     assert out["status"] == "DECLINED_ADVICE"
     assert [c["question"] for c in f.calls["router"]] == [desk.ADVICE_BRIEF_Q]
     assert all("Should I buy" not in str(c) for c in f.calls["writer"])
-    assert out["answer"].startswith(desk.ADVICE_OPEN) and out["answer"].endswith(desk.ADVICE_CLOSE)
+    assert out["answer"].startswith(desk.ADVICE_LEAD.format(name="Apple")) and desk.ADVICE_WEIGH in out["answer"]
     assert "Revenue was $478.8 billion." in out["answer"] and len(f.calls["gate"]) == 1
 
 
 def test_router_advice_declines_then_gives_checked_facts():
     f = Fakes(route={"specialists": ["filings"], "advice": True, "reason": "", "model": "m", "fallback": False})
     out = desk.answer("AAPL", "Is now the moment to get out of Apple?", deps=f.deps)
-    assert out["status"] == "DECLINED_ADVICE" and out["answer"].startswith(desk.ADVICE_OPEN)
+    assert out["status"] == "DECLINED_ADVICE" and out["answer"].startswith(desk.ADVICE_LEAD.format(name="Apple"))
     assert all("get out of Apple" not in str(c) for c in f.calls["writer"])
     assert "Revenue was $478.8 billion." in out["answer"]
 
@@ -102,8 +102,8 @@ def test_advice_about_another_company_uses_checked_market_data_when_there_is_som
         assert out["status"] == "DECLINED_ADVICE"
         assert [(c["ticker"], c["question"]) for c in f.calls["router"]] == [("NVDA", desk.ADVICE_MKT_Q.format(name="Nvidia"))]
         assert all("do i invest" not in str(c) for c in f.calls["writer"]) and len(f.calls["gate"]) == 1
-        assert out["answer"].startswith(desk.ADVICE_MKT_OPEN.format(name="Nvidia"))
-        assert desk.ADVICE_MKT_CLOSE.format(name="Nvidia") in out["answer"]
+        assert out["answer"].startswith(desk.ADVICE_MKT_LEAD.format(name="Nvidia"))
+        assert desk.ADVICE_WEIGH in out["answer"] and desk.ADVICE_MKT_NOTE in out["answer"]
     for t in (desk.ADVICE_MKT_OPEN, desk.ADVICE_MKT_CLOSE):
         assert not any(ch.isdigit() for ch in t) and not t.lower().startswith("i can't")
 

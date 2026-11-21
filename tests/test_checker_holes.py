@@ -163,7 +163,7 @@ def _market_pack(monkeypatch):
 def test_h5_market_pack_allows_only_the_last_trading_day(monkeypatch):
     p = _market_pack(monkeypatch)
     assert p["status"] == "ok" and p["as_of"] == "2026-11-20"
-    assert p["allow_dates"] == ["2026-11-20"]
+    assert p["allow_dates"] == ["2026-11-20", "2026-11-19"]   # last bar, plus the prior close's own bar date
 
 
 def test_h5_close_on_todays_date_is_cut(monkeypatch):

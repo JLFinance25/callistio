@@ -43,11 +43,11 @@ def _period(q: str):
     return ("cal", 365), "1 year"
 
 
-def make_charts(ticker: str, q: str) -> list:
-    if not _CHART_RX.search(q):
+def make_charts(ticker: str, q: str, price_only: bool = False) -> list:
+    if not price_only and not _CHART_RX.search(q):
         return []
     charts = []
-    if ticker in facts.FACTS:
+    if ticker in facts.FACTS and not price_only:
         F = facts.FACTS[ticker]
         for rx, stem, title in _METRICS:
             if re.search(rx, q, re.I) and f"{stem}_fy2025" in F and f"{stem}_fy2026" in F:
@@ -114,3 +114,28 @@ def charts_for(ticker: str, q: str) -> list:
         return make_charts(ticker, q)
     except Exception:
         return [{"type": "none", "title": "Chart", "note": "The chart could not be drawn."}]
+
+
+# Questions about how the share price moved get a price chart even when nobody typed "chart".
+_AUTO_RX = re.compile(r"\bhow (?:has|have|is|are|did)\b[^?]*\b(?:stock|shares?|price|done|doing|perform\w*)\b|"
+                      r"\bwhat(?:'s| is| has)? (?:happen\w*|going on)\b|\bperformance\b|\b(?:bear|bull)(?:ish)? case\b|"
+                      r"\bwhy\b[^?]*\b(?:down|up|drop\w*|fall\w*|fell|ris\w+|rose|jump\w*|crash\w*|tank\w*|mov\w+)\b|"
+                      r"\bhow\b[^?]*\b(?:perform\w*|done|doing|moved?|trad\w+)\b|\b(?:this|last|past) (?:week|month|year|quarter)\b|"
+                      r"\b52[- ]week\b|\bover(?:valued|priced)\b|\bstock price\b|\bshare price\b", re.I)
+_SHORT_RX = re.compile(r"\b(?:yesterday|today|this week|friday|monday|tuesday|wednesday|thursday)\b", re.I)
+
+
+def auto_wanted(q: str) -> bool:
+    return bool(_AUTO_RX.search(q or "")) and not wanted(q)
+
+
+def auto_charts(ticker: str, q: str) -> list:
+    """A price line for a price-move question. One-day questions get a one-month window for context. Returns []
+    rather than a "none" note when there is no data: nobody asked for this chart."""
+    try:
+        qq = q if re.search(r"\d+\s*(?:day|week|month|year)|ytd|year to date|this year|quarter|month", q, re.I) else (
+            q + " 1 month" if _SHORT_RX.search(q) else q)
+        out = make_charts(ticker, qq, price_only=True)
+        return [c for c in out if c.get("type") == "line" and len(c.get("points") or []) >= 2]
+    except Exception:
+        return []

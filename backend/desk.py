@@ -15,7 +15,7 @@ from typing import Any
 
 from langchain_core.runnables import RunnableLambda, RunnableParallel
 
-from backend import ask, checker, facts, tracing
+from backend import ask, checker, facts, summary, tracing
 
 LABELS = {"filings": "SEC filing data", "market": "Market data", "fundamentals": "The second-source check",
           "news": "News"}
@@ -68,24 +68,69 @@ ADVICE_NO_FACTS = ("A view on a stock starts from the company's own reports. Ask
                    "against the 10-K.")
 ADVICE_PROMISE = ("No one can honestly promise what a stock will do, and Europa does not make buy or sell calls. "
                   "What it can show is what the filing says, with every number checked.")
-ADVICE_OTHER = ("In this demo Europa has checked filing figures for Apple (AAPL), and market data for {who} stock is "
+ADVICE_OTHER = ("Europa has checked filing figures for Apple (AAPL), and market data for {who} stock is "
                 "not available right now. An analyst deciding on a stock would check: revenue and profit growth in "
                 "the latest annual report, profit margins, cash and debt, the risk factors, and how the share price "
                 "compares with earnings. Ask the same question about Apple to see how Europa answers it with checked "
                 "numbers. Europa shows what the data says; the buy or sell decision stays with you.")
 # Another company with market data (Massive): checked price figures in place of the fixed text.
 ADVICE_MKT_OPEN = "Here is the latest market data for {name}, and what it means for someone looking at the stock:"
-ADVICE_MKT_CLOSE = ("Filing figures (sales, profit, margins) are checked for Apple in this demo; for {name} this "
+ADVICE_MKT_CLOSE = ("Filing figures (sales, profit, margins) are checked for Apple only; for {name} this "
                     "summary uses market data. Things to weigh before deciding: the company's sales and profit growth "
                     "in its latest annual report, how the share price compares with earnings (valuation), how much "
                     "of your money is already in one stock, and whether you could hold through a drop. Europa shows "
                     "what the data says; the buy or sell decision stays with you.")
-ADVICE_MKT_Q = ("How has {name} stock done recently? Give the latest closing price, the recent price returns and the "
-                "52-week high and low. End with a 'What it means:' sentence and a 'Deeper read:' sentence.")
+ADVICE_MKT_Q = ("Judge how {name} stock has done recently, in exactly four short sentences. The first starts "
+                "'Strengths:' and the second starts 'Watch-outs:'; each is at most 14 words with at most one number "
+                "from the market data, and keeps the period words next to that number. Use plain labels, no brackets "
+                "and no definitions. If there is no real strength, say so in words. The third starts 'What it means:' "
+                "(at most 18 words, no numbers). The fourth starts 'Deeper read:' (at most 16 words, no numbers): one "
+                "thing in the data worth looking at next. Do not list every figure: the reader already sees the key "
+                "numbers in a list above your sentences.")
 # The question the desk answers, fully checked, in place of "should I buy Apple?"
-ADVICE_BRIEF_Q = ("Summarize Apple's fiscal 2026 versus fiscal 2025 in plain English: revenue growth, net income, "
-                  "gross margin, diluted EPS, cash returned through buybacks, and any new risk factor. "
-                  "End with a 'What it means:' sentence and a 'Deeper read:' sentence.")
+ADVICE_BRIEF_Q = ("Judge Apple's fiscal 2026 against fiscal 2025 in exactly four short sentences. The first starts "
+                  "'Strengths:' and the second starts 'Watch-outs:' (buybacks, any new risk factor); each is at most "
+                  "14 words with at most one number, and keeps the period words next to that number. Use plain "
+                  "labels, no brackets and no definitions. The third starts 'What it means:' (at most 18 words, no "
+                  "numbers). The fourth starts 'Deeper read:' (at most 16 words, no numbers): one thing in the report "
+                  "worth reading next. Do not list every figure: the reader already sees the key numbers in a list "
+                  "above your sentences.")
+# Short advice layout (2026-11-21): code-built stat bullets, the checked three lines above, a news-mood block, one
+# closing line. Fixed parts have no digits.
+ADVICE_LEAD = "{name}'s latest annual report, in short:"
+ADVICE_MKT_LEAD = "{name} stock, in short:"
+ADVICE_WEIGH = ("To weigh: price against profits, how much money sits in one stock, riding out a drop. "
+                "The buy or sell decision is yours.")
+ADVICE_MKT_NOTE = "Filing figures (sales, profit) are checked for Apple only."
+# Fixed "Deeper read" lines for advice answers: the model's own pointer was often vague, so code writes it.
+ADVICE_DEEPER = "Deeper read: the Risk Factors section of the annual report (10-K) lists what could go wrong."
+ADVICE_MKT_DEEPER = "Deeper read: {name}'s latest annual report shows its sales and profit, which price data cannot."
+ADVICE_MAX_WORDS = 170
+_SRC_NOTE_RX = re.compile(r"\b(?:Market data: Massive|Filing figures \(|The annual figures were confirmed)")
+_LABEL_RX = re.compile(r"\s*(?=(?:Strengths|Watch-outs|What it means|Deeper read):)")
+
+
+def _short_advice(lead: str, bullets: list, brief_text: str, news: list, tail: list, deeper: str = "") -> str:
+    lines = [lead] + ["• " + b for b in bullets]
+    # the desk's own source notice ("Market data: Massive, ...") goes to the bottom, on its own last line
+    m = _SRC_NOTE_RX.search(brief_text)
+    src = " ".join(brief_text[m.start():].split()) if m else ""
+    brief_text = brief_text[:m.start()] if m else brief_text
+    lines += [" ".join(x.split()) for x in _LABEL_RX.split(brief_text.strip()) if x.strip()]
+    if deeper:  # the fixed pointer replaces the model's "Deeper read:" line (which holds no numbers)
+        lines = [x for x in lines if not x.startswith("Deeper read:")] + [deeper]
+    tail = list(tail)
+    news = list(news or [])
+    while len(news) > 1 and len(" ".join(lines + news + tail).split()) > ADVICE_MAX_WORDS - 20:
+        news.pop()  # keep the whole answer near the 140 to 170 word target
+    if news:
+        lines += [summary.NEWS_HEAD] + ["• " + n for n in news]
+    mk = src.find("Market data: Massive")
+    if mk >= 0 and ADVICE_MKT_NOTE in tail:
+        # one source line: the short Apple-only note plus the market-data stamp (drops the long repeat)
+        tail.remove(ADVICE_MKT_NOTE)
+        src = ADVICE_MKT_NOTE + " " + src[mk:]
+    return "\n".join(lines + tail + ([src] if src else []))
 _PROMISE_RX = re.compile(r"\b(guarantee[ds]?|promise[ds]?)\b", re.I)
 _OTHER_NAMES = {"nvidia": "Nvidia", "tesla": "Tesla", "microsoft": "Microsoft", "amazon": "Amazon",
                 "google": "Google", "alphabet": "Alphabet", "meta": "Meta", "samsung": "Samsung",
@@ -116,7 +161,21 @@ def _ticker_name(ticker: str):
         name = str(massive.ticker_overview(ticker).get("name") or "").strip()
     except Exception:
         return None
+    name = _short_name(name)
     return name if name and not re.search(r"\d", name) and len(name) <= 60 else None
+
+
+_NAME_TAIL = re.compile(r"\s+(?:Class [A-C]\b.*|Common Stock.*|Ordinary Shares.*|American Depositary.*|"
+                        r"(?:,?\s*(?:Inc|Incorporated|Corp|Corporation|Co|Company|Ltd|Limited|PLC|plc|N\.V|S\.A|Holdings?|"
+                        r"Technologies|Platforms|Group)\.?)+)$", re.I)
+
+
+def _short_name(name: str) -> str:
+    """'Palantir Technologies Inc. Class A Common Stock' -> 'Palantir'. Legal and share-class tails only."""
+    out = name
+    for _ in range(3):
+        out = _NAME_TAIL.sub("", out).strip(" ,.&")
+    return out or name
 
 
 def _other_company(ticker: str, question: str):
@@ -256,9 +315,9 @@ def _timed(runnable, inp, config):
     return out, time.time() - t0
 
 
-NOTICE_FILINGS_OTHER = ("Filing figures (sales, profit, margins) are checked for Apple in this demo; for {who} this "
+NOTICE_FILINGS_OTHER = ("Filing figures (sales, profit, margins) are checked for Apple only; for {who} this "
                         "answer uses market data.")
-NOTICE_FILINGS_OTHER_ASK = ("Filing figures (sales, profit, margins) are checked for Apple in this demo. For {who}, ask "
+NOTICE_FILINGS_OTHER_ASK = ("Filing figures (sales, profit, margins) are checked for Apple only. For {who}, ask "
                             "about the share price, recent returns or the yearly range to get checked market data.")
 NOTICE_NEWS_OTHER = "Europa's headlines follow the selected ticker ({ticker}), so none are listed for another company."
 NOTICE_OUTAGE = "{source} did not respond just now, so that part is left out rather than guessed."
@@ -421,14 +480,15 @@ def _pipeline(inp: dict, config) -> dict:
                 return {**out, "answer": NOTICE_UNKNOWN_TICKER.format(ticker=tk)}
             return out
         return {**brief, "status": "DECLINED_ADVICE", "agents": out["agents"] + brief["agents"], "_company": name,
-                "answer": ADVICE_MKT_OPEN.format(name=name) + "\n\n" + brief["answer"].strip() + "\n\n"
-                          + " ".join(_ways(question) + [ADVICE_MKT_CLOSE.format(name=name)])}
+                "answer": _short_advice(ADVICE_MKT_LEAD.format(name=name), summary.market_bullets(tk),
+                                        brief["answer"], summary.news_lines(tk, name), [ADVICE_WEIGH, ADVICE_MKT_NOTE],
+                                        deeper=ADVICE_MKT_DEEPER.format(name=name))}
     brief = _pipeline_core({"ticker": ticker, "question": ADVICE_BRIEF_Q, "_brief": True}, config)
     if brief.get("status") != "ANSWERED" or not (brief.get("answer") or "").strip():
         return out
     return {**brief, "status": "DECLINED_ADVICE", "agents": out["agents"] + brief["agents"],
-            "answer": ADVICE_OPEN + "\n\n" + brief["answer"].strip() + "\n\n"
-                      + " ".join(_ways(question) + [ADVICE_CLOSE])}
+            "answer": _short_advice(ADVICE_LEAD.format(name="Apple"), summary.apple_bullets(), brief["answer"],
+                                    summary.news_lines(ticker, "Apple"), [ADVICE_WEIGH], deeper=ADVICE_DEEPER)}
 
 
 _WHAT_HAPPENED_RX = re.compile(r"\bwhat(?:'s| is| has)? (?:happen\w*|going on)\b|\bwhy\b[^?]*\b(?:stock|shares?|price|down|up|"

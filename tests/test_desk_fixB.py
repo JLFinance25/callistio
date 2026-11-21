@@ -4,7 +4,7 @@ import pytest
 from backend import desk
 from tests.test_desk import Fakes, pack
 
-NOT_APPLE = "are checked for Apple in this demo"
+NOT_APPLE = "are checked for Apple only"
 
 
 @pytest.fixture(autouse=True)
@@ -54,7 +54,7 @@ def test_ticker_name_uses_massive_for_unknown_tickers(monkeypatch):
     from backend import desk, massive
     monkeypatch.setattr(massive, "available", lambda: True)
     monkeypatch.setattr(massive, "ticker_overview", lambda t: {"name": "lululemon athletica inc."})
-    assert desk._ticker_name("LULU") == "lululemon athletica inc."
+    assert desk._ticker_name("LULU") == "lululemon athletica"      # legal tail dropped for readable notices
     assert desk._ticker_name("NVDA") == "Nvidia"          # built-in names win
     assert desk._ticker_name("AAPL") == "Apple Inc."
     monkeypatch.setattr(massive, "ticker_overview", lambda t: {"name": "3M Company"})

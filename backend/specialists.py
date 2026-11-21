@@ -192,7 +192,8 @@ def _price_facts(bars: list[dict]) -> tuple[dict, str]:
             ("ret_1d_pct", 1, "one day (last close against the close before)", 1, 7),
             ("ret_1w_pct", 5, "one week (five trading days)", 6, 12),
             ("ret_1m_pct", 21, "one month (about twenty-one trading days)", 26, 38),
-            ("ret_3m_pct", 63, "three months (about sixty-three trading days)", 84, 105)]:
+            ("ret_3m_pct", 63, "three months (about sixty-three trading days)", 84, 105),
+            ("ret_6m_pct", 126, "six months (about one hundred twenty-six trading days)", 170, 200)]:
         add_ret(fid, label, bars[-1 - back] if len(bars) > back else None, lo_d, hi_d)
 
     prev_year = [b for b in bars if date.fromisoformat(b["date"]).year < last_d.year]
@@ -220,6 +221,8 @@ def _price_facts(bars: list[dict]) -> tuple[dict, str]:
     return f, as_of
 
 
+_FUND_TYPES = {"ETF", "ETV", "ETN", "ETS", "FUND"}
+_INDEX_NAMES = ["S&P 500", "Nasdaq-100", "Nasdaq 100", "Russell 2000", "Dow Jones Industrial Average"]
 _FREQ_WORDS = {1: "once a year", 2: "twice a year", 4: "four times a year (quarterly)", 12: "twelve times a year (monthly)"}
 
 
@@ -271,10 +274,13 @@ def _market(inp: dict) -> dict:
         facts.update(pf)
     except massive.Unavailable as e:
         reasons.append(e.reason)
+    fund_name = None
     if not (reasons and reasons[0] == "MASSIVE_API_KEY is not set"):
         try:
             ov = massive.ticker_overview(t)
             osrc = f"Massive market data (ticker overview, as of {today.isoformat()})"
+            if str(ov.get("type") or "").upper() in _FUND_TYPES:
+                fund_name = " ".join(str(ov.get("name") or "").split())[:80]
             mc = ov.get("market_cap")
             if isinstance(mc, (int, float)) and mc > 0:
                 facts["market_cap"] = _fact("Market capitalization", float(mc), "usd", osrc, today.isoformat(),
@@ -301,10 +307,26 @@ def _market(inp: dict) -> dict:
     lines += [f"{fid} | {fa['label']} | {fa['display']}" for fid, fa in facts.items()]
     if div_line:
         lines.append(div_line)
+    # The close before carries its own bar date; a sentence may name it ("down from $X on <that date>").
+    prior_dates = [d for d in [(facts.get("px_close_prior") or {}).get("as_of")] if d and d != as_of]
+    if prior_dates:
+        lines.append(f"DATES: px_close_prior is the close on {prior_dates[0]}. For it, write that date or "
+                     f"\"the trading day before\"; never put {as_of} on it.")
     # Only the last bar's date may be written. Today's date is not allowed: on a weekend or holiday
     # "closed at $X on <today>" would be a wrong date.
+    allow = ["52-week"]
+    if "ret_6m_pct" in facts:   # the window may be written with a digit; it is a label, not a figure to check
+        allow += ["6 months", "6-month", "6 month"]
+    if fund_name:
+        # a fund is not a company: the writer must say so, and may print the fund's own name (it can hold digits,
+        # for example an index name) without the number gate cutting the sentence
+        lines.append(f"KIND: {t} is an exchange-traded fund, not a company. Its name is \"{fund_name}\". Say in the "
+                     "first sentence that it is a fund and what its name says it tracks or holds. Call its price "
+                     "\"the fund's share price\", never a company's stock, and never call it the price of the "
+                     "asset it holds.")
+        allow += [fund_name] + _INDEX_NAMES
     return _pack("market", status="ok", source=MARKET_SOURCE, as_of=as_of, facts=facts,
-                 sheet="\n".join(lines), allow_text=["52-week"], allow_dates=[as_of, *div_dates])
+                 sheet="\n".join(lines), allow_text=allow, allow_dates=[as_of, *prior_dates, *div_dates])
 
 
 def market(inp: dict) -> dict:

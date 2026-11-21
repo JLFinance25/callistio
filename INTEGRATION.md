@@ -25,6 +25,8 @@ cp .env.example .env        # then fill in your own keys (never commit .env)
 ## 2. The one call the main site needs
 `POST /api/ask` with JSON `{"ticker": "AAPL", "question": "How much did R&D spending grow?"}`. Both fields are required (a missing one returns http 422).
 
+Optional third field for chat memory: `"last_question"`, the previous question the user asked in this chat (send `""` or leave it out at the start). With it, a follow-up such as "and Microsoft?" or "what about over 5 years?" is rewritten by code into a full question before it is answered. Also send the `ticker` from the last reply, so "what about last year?" stays on the same stock.
+
 Reply (trimmed):
 ```json
 {
@@ -58,11 +60,23 @@ The real reply also has `pipeline` and `skeptic` (safe to ignore). What to show 
 | `disclaimer`, `data_note` | Small print under the answer. Keep the disclaimer visible. |
 | `agents[]` | Optional "how this answer was made" steps (name, model, seconds). |
 | `news[]` | Headlines (title, publisher, published_utc, url, summary), word for word, not verified. `summary` is the news feed's own article summary (may be empty). Show it under a clear label such as "As reported, not checked": its numbers are NOT checked. |
-| `charts[]` | Only present when the question asks for a chart or graph. Each item: `type` (`line`, `bar` or `none`), `title`, `unit` (`usd_price`, `usd`, `usd_per_share`, `pct`), `points` (`[{x, y}]`), `source`; for `none`, a `note` instead of points. Data comes straight from SEC facts or Massive closes, never from a model. Reference drawing code (plain SVG, no library): `drawChart` in `backend/static/index.html`. |
+| `charts[]` | Present when the question asks for a chart or graph, and added automatically (a price line) for price-move questions such as "how has Tesla done this year" or "what happened to Nvidia yesterday". Each item: `type` (`line`, `bar` or `none`), `title`, `unit` (`usd_price`, `usd`, `usd_per_share`, `pct`), `points` (`[{x, y}]`), `source`; for `none`, a `note` instead of points. Data comes straight from SEC facts or Massive closes, never from a model. Reference drawing code (plain SVG, no library): `drawChart` in `backend/static/index.html`. |
+| `ticker` | The stock Europa actually answered about. A company named in the question ("nvidia", "$TSLA", "eli lilly") wins over the `ticker` you sent, so the box is optional: send `AAPL` or the last ticker as a fallback, then show this field. |
+| `stats[]` | Key-number tiles for the header, on `ANSWERED` and `DECLINED_ADVICE` replies when market data exists. Up to 6 items: `label` (Price, Day change, Past year, Market cap, 52-week range, Below 52-week high, Dividend yield), `value` (ready-to-show text), `note`, `fact_id`. Built by code from the same Massive facts the checker uses. May be missing: draw nothing then. |
+| `followups[]` | Up to 3 suggested next questions (plain strings), built by code from what was just asked. Never an advice or prediction question. Draw them as buttons that send the text as the next question. May be missing. |
+| `kind: "compare"` | "Compare Apple and Microsoft" returns `status: "ANSWERED"`, `kind: "compare"`, `tickers: [..]` and two blocks of source figures printed by code (no model). `claims` is empty on purpose: do not show a "numbers checked" badge on it; label it "source figures". |
+| `status: "CHAT"` | New status. Greetings, "what are you", "how do you check numbers", plain term definitions ("what is an ETF?"), off-topic and similar get a fixed reply written in code (no model, no data figures). `answer` is the text, `kind` names the reply, `claims` and `blocked` are empty. Show it as a plain chat bubble with no checked badge. |
 
 Answers take about 2 to 15 seconds (up to about 20 for a first-time "should I buy" on another ticker). Show a loading state.
 
-Layout of `answer`: plain text. A blank line separates blocks. Sentences may start with the labels `What it means:`, `Deeper read:`, `Bear case:`, `Bull case:`; fixed "how to decide" sentences and source notes (`Market data: ...`) come last. `renderAnswer` in `backend/static/index.html` shows one way to group them (bullets, highlighted labels, a "How to decide" box, small notes).
+Layout of `answer`: plain text with single line breaks (`\n`), the same shape for every data answer. Draw it line by line (or with CSS `white-space: pre-line`):
+1. first line: the one-line lead;
+2. lines starting with `• `: stat bullets;
+3. lines starting with a label: `Strengths:`, `Watch-outs:`, `What it means:`, `Deeper read:`, `Bear case:`, `Bull case:`, `To weigh:`;
+4. on "should I buy" answers, a line starting `In the news` followed by `• ` headline lines (publisher headlines, word for word, not checked);
+5. last lines: fixed "how to decide" guidance and small source notes (`Market data: ...`).
+
+Short replies (one or two sentences, and every `CHAT` reply) have no line breaks. `renderAnswer` in `backend/static/index.html` is a working reference (lead, bullet list, bold labels, "How to decide" box, small notes).
 
 Questions the desk handles (any wording): filing figures and risk factors (Apple), price, returns, 52-week range and distance from it, market cap, dividends and yield, "what happened / why did it move" (checked move plus reported headlines), bear case / bull case / pros and cons, charts ("6 month chart", "graph revenue"), valuation, safety, analyst and earnings-date questions (checked facts plus where to look).
 
@@ -95,5 +109,5 @@ Other addresses: `POST /api/chat` accepts `{"message": "..."}` or OpenAI-style `
 2. **Copy the folder into the main repo** as a sub-folder and run it next to the main backend.
 3. **Port the logic** into the main backend's language: only worth it after the event.
 
-Updates: newer versions (3-model council, more checker fixes) will be pushed to this same repo; this guide matches commit 33f7935 (Nov 21, 2026, 3:45 PM ET). The `/api/ask`
+Updates: newer versions (3-model council, more checker fixes) will be pushed to this same repo; this guide matches the commit that adds `last_question`, `followups` and the line layout (Nov 21, 2026). The `/api/ask`
 request and the fields above stay the same; new fields may be added.
