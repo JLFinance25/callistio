@@ -44,7 +44,7 @@ Reply (trimmed):
   "agents": [{"name": "guard_advice", "kind": "code", "model": null, "status": "ok", "note": "passed", "seconds": 0.0}],
   "models": ["anthropic/claude-haiku-5-5", "anthropic/claude-sonnet-5-5", "openai/gpt-5.4-mini"],
   "sources": [{"name": "SEC EDGAR 10-K (XBRL facts and filing text)", "status": "ok"}],
-  "news": [], "unavailable": [], "prism_session_id": "ask-406ca42e6aa6"
+  "news": [], "unavailable": [], "prism_session_id": "ask-<session-id>"
 }
 ```
 
