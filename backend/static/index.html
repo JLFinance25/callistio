@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Europa Chat</title>
+<style>
+  :root { --bg:#0A1628; --panel:#101F38; --line:#1E3253; --ink:#E8F1FA; --muted:#8FA3BF;
+          --ok:#9CC9F5; --bad:#E5484D; --accent:#2F6BFF; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.5 -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
+  main { max-width:760px; margin:0 auto; padding:24px 16px 120px; }
+  header { display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; border-bottom:1px solid var(--line); padding-bottom:12px; }
+  h1 { margin:0; font-size:22px; letter-spacing:.18em; }
+  .sub { color:var(--muted); font-size:14px; }
+  .ticker { margin-left:auto; display:flex; gap:6px; align-items:center; color:var(--muted); font-size:14px; }
+  .ticker input { width:80px; background:var(--panel); color:var(--ink); border:1px solid var(--line); border-radius:6px; padding:4px 8px; text-transform:uppercase; }
+  #log { margin-top:16px; display:flex; flex-direction:column; gap:14px; }
+  .msg { padding:12px 14px; border-radius:10px; max-width:92%; }
+  .you { align-self:flex-end; background:var(--accent); color:#fff; }
+  .bot { align-self:flex-start; background:var(--panel); border:1px solid var(--line); }
+  .status { font-size:12px; letter-spacing:.06em; color:var(--muted); margin-bottom:4px; }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+  .chip { font-size:12px; border-radius:999px; padding:2px 8px; border:1px solid; }
+  .chip.ok { color:var(--ok); border-color:var(--ok); }
+  .chip.bad { color:var(--bad); border-color:var(--bad); }
+  .chip.unchecked { color:var(--muted); border-color:var(--muted); }
+  .blocked { margin-top:8px; font-size:13px; color:var(--bad); }
+  .blocked s { color:var(--muted); }
+  .meta { margin-top:6px; font-size:12px; color:var(--muted); }
+  .examples { display:flex; flex-wrap:wrap; gap:8px; margin-top:16px; }
+  .examples button { background:none; color:var(--muted); border:1px solid var(--line); border-radius:999px; padding:4px 10px; font:inherit; font-size:13px; cursor:pointer; }
+  form { position:fixed; left:0; right:0; bottom:0; background:var(--bg); border-top:1px solid var(--line); padding:12px 16px; }
+  form div { max-width:760px; margin:0 auto; display:flex; gap:8px; }
+  form input { flex:1; background:var(--panel); color:var(--ink); border:1px solid var(--line); border-radius:8px; padding:10px 12px; font:inherit; }
+  form button { background:var(--accent); color:#fff; border:0; border-radius:8px; padding:0 18px; font:inherit; cursor:pointer; }
+  form button:disabled { opacity:.5; cursor:wait; }
+  footer { color:var(--muted); font-size:12px; margin-top:24px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>EUROPA</h1><span class="sub">Ask about a company's filings. Every number is checked against the SEC.</span>
+    <label class="ticker">Ticker <input id="ticker" value="AAPL" maxlength="6" aria-label="Ticker"></label>
+  </header>
+  <div class="examples" id="examples">
+    <button type="button">What were Apple's net sales in fiscal 2026?</button>
+    <button type="button">How did gross margin change?</button>
+    <button type="button">What new risk factor appeared this year?</button>
+    <button type="button">What will revenue be in 2027?</button>
+    <button type="button">Should I buy Apple stock?</button>
+  </div>
+  <div id="log" aria-live="polite"></div>
+  <footer>Research aid, not investment advice. Demo data: Apple 10-K fiscal 2026 vs fiscal 2025 (public SEC filings).</footer>
+</main>
+<form id="f"><div><input id="q" placeholder="Ask about the filings…" autocomplete="off" aria-label="Question"><button id="send">Ask</button></div></form>
+<script>
+const log = document.getElementById('log'), q = document.getElementById('q'), send = document.getElementById('send');
+const LABEL = {ANSWERED:'ANSWERED · CHECKED', I_DONT_KNOW:"I DON'T KNOW", DECLINED_ADVICE:'NO INVESTMENT ADVICE'};
+function el(tag, cls, text){ const e=document.createElement(tag); if(cls)e.className=cls; if(text!=null)e.textContent=text; return e; }
+function add(node){ log.appendChild(node); node.scrollIntoView({behavior:'smooth', block:'end'}); }
+async function ask(question){
+  if(!question.trim()) return;
+  add(el('div','msg you',question)); q.value=''; send.disabled=true;
+  const wait = el('div','msg bot','Reading the filings…'); add(wait);
+  try{
+    const r = await fetch('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ticker:document.getElementById('ticker').value||'AAPL', question})});
+    if(!r.ok) throw new Error('Server error '+r.status);
+    const d = await r.json(); wait.textContent='';
+    wait.appendChild(el('div','status',(LABEL[d.status]||d.status)+(d.checker==='off'?' · CHECKER OFF':'')));
+    wait.appendChild(el('div',null,d.answer));
+    if(d.claims && d.claims.length){
+      const chips=el('div','chips');
+      d.claims.forEach(c=>{ const cls=c.status==='VERIFIED'?'ok':(c.status==='UNCHECKED'?'unchecked':'bad');
+        const chip=el('span','chip '+cls,(c.status==='VERIFIED'?'✓ ':c.status==='UNCHECKED'?'? ':'✗ ')+c.text);
+        chip.title = c.source || c.note || c.status; chips.appendChild(chip); });
+      wait.appendChild(chips);
+    }
+    (d.blocked||[]).forEach(b=>{ const p=el('div','blocked','Blocked: '); const s=el('s',null,b.text); p.appendChild(s); p.title=b.note||''; wait.appendChild(p); });
+    wait.appendChild(el('div','meta',`${d.seconds}s · ${(d.models||[]).join(', ')}${d.prism_session_id?' · PRISM '+d.prism_session_id:''}`));
+  }catch(e){ wait.textContent='Something went wrong: '+e.message; }
+  send.disabled=false; q.focus();
+}
+document.getElementById('f').addEventListener('submit',e=>{e.preventDefault(); ask(q.value);});
+document.querySelectorAll('#examples button').forEach(b=>b.addEventListener('click',()=>ask(b.textContent)));
+</script>
+</body>
+</html>
