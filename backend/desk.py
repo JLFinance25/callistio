@@ -263,6 +263,69 @@ NOTICE_FILINGS_OTHER_ASK = ("Filing figures (sales, profit, margins) are checked
 NOTICE_NEWS_OTHER = "Europa's headlines follow the selected ticker ({ticker}), so none are listed for another company."
 NOTICE_OUTAGE = "{source} did not respond just now, so that part is left out rather than guessed."
 NOTICE_NOTHING = "Europa has no checked data for that question yet."
+NOTICE_UNKNOWN_TICKER = ("Europa could not find a stock with the ticker {ticker}. Check the symbol, "
+                         "for example AAPL for Apple or NVDA for Nvidia, and ask again.")
+
+
+def _unknown_ticker(ticker) -> bool:
+    """True only when Massive answers that the ticker does not exist (not on an outage or a missing key)."""
+    if not ticker or ticker in facts.FACTS or not _valid_ticker(ticker):
+        return False
+    try:
+        from backend import massive
+        if not massive.available():
+            return False
+        massive.ticker_overview(ticker)
+    except Exception as e:
+        return getattr(e, "code", None) == "not_found"
+    return False
+
+
+# "A way to decide" (Jayden 2026-11-21): when Europa cannot hand over an opinion or a missing figure, it says how the
+# user can work it out. Fixed code text, no digits, no buy/sell call. One line per topic the question touches.
+WAYS = [
+    ("valuation", r"\b(?:over|under)[- ]?valued\b|\bexpensive\b|\bcheap\b|\bp/?e\b|price[- ]to[- ]earnings|"
+                  r"\bvaluation\b|\bfair(?:ly)? (?:value|priced)\b|\bworth (?:the|its) price\b",
+     "How to judge the price: compare the P/E ratio (share price divided by yearly profit per share) with the "
+     "company's own past levels and with close competitors, and check whether profit is growing fast enough to "
+     "support it. A high P/E means investors are paying for future growth, not that the stock must fall."),
+    ("analysts", r"\banalysts?\b|\bprice targets?\b|\bratings?\b|\bupgrades?\b|\bdowngrades?\b|\bwall street\b|"
+                 r"\bconsensus\b",
+     "Analyst ratings and price targets are not on Europa's data plan, so none are shown. To see them, open the "
+     "research or analyst tab at your broker, and read them as opinions that often disagree: check how many "
+     "analysts cover the stock, the gap between the lowest and highest target, and the date of each rating."),
+    ("risk", r"\bsafe(?:r|ty)?\b|\brisky\b|\bhow risky\b|\bvolatil\w*",
+     "How to gauge risk: look at the gap between the yearly high and low (bigger swings mean a bumpier ride), "
+     "whether the company earns a steady profit, how much debt it carries, and how much of your money sits in this "
+     "one stock. No single stock is safe the way a savings account is."),
+    ("why", r"\bwhy\b[^?]*\b(?:down|up|drop\w*|fall\w*|fell|ris\w+|rose|jump\w*|crash\w*|tank\w*|mov\w+|surg\w*|"
+            r"slid\w*|plung\w*)\b",
+     "Price data shows how much a stock moved, not why. To find the cause, check the dated headlines, whether the "
+     "company reported earnings or changed its forecast that day, and whether the whole market or its sector "
+     "moved the same way."),
+    ("earnings_date", r"\b(?:when|next|upcoming)\b[^?]*\bearnings\b|\bearnings (?:date|call|day|report)\b|"
+                      r"\breport(?:s|ing)? earnings\b",
+     "Europa's data does not include the earnings calendar. The company posts its next earnings date on its "
+     "investor relations page, and your broker's calendar shows it too."),
+    ("long_term", r"\blong[- ]term\b|\bhold (?:it )?for\b|\bfor (?:the next )?(?:\w+ )?years\b|\bretire\w*",
+     "For a long-term view, the yearly numbers matter more than recent price moves: look for sales and profit that "
+     "grow across several annual reports, steady margins, and risks that are not getting worse."),
+    ("sell", r"\bsell(?:ing)?\b|\bget out\b|\bcash out\b",
+     "If you already own the shares, the same facts apply, plus two personal ones: whether your reason for buying "
+     "still holds, and what tax you would owe on a sale."),
+]
+WAYS = [(k, re.compile(rx, re.I), text) for k, rx, text in WAYS]
+WAY_FILINGS_OTHER = ("For {who}'s sales, profit and risks, the source is its latest annual report, free on the SEC's "
+                     "EDGAR site: the income statement shows sales and profit, and the Risk Factors section lists "
+                     "what could go wrong.")
+_FILINGS_TOPIC_RX = re.compile(r"\brisks?\b|\bprofit\w*|\brevenue\b|\bsales\b|\bgrow\w*|\bmaking money\b|\bmargins?\b|"
+                               r"\bearn(?:s|ed|ing)?\b|\bdebt\b|\bcash\b", re.I)
+
+
+def _ways(question: str, skip=()) -> list:
+    """The fixed "how to work it out" lines for the topics a question touches (at most two)."""
+    q = question or ""
+    return [text for k, rx, text in WAYS if k not in skip and rx.search(q)][:2]
 
 
 def _notices(inp: dict) -> dict:
@@ -270,7 +333,13 @@ def _notices(inp: dict) -> dict:
     packs, claims = inp["packs"], inp["claims"]
     out = []
     asked_second = bool(_SECOND_SOURCE_RX.search(inp.get("question") or ""))
+    unknown = (any(p["agent"] == "market" and p["status"] != "ok" for p in packs)
+               and not any(p["status"] == "ok" for p in packs) and _unknown_ticker(inp.get("ticker")))
+    if unknown:
+        out.append(NOTICE_UNKNOWN_TICKER.format(ticker=inp["ticker"]))
     for p in packs:
+        if unknown:
+            break
         if p["status"] != "ok":
             if p["agent"] == "fundamentals" and not asked_second:
                 continue  # an extra check the user did not ask for: shown in sources/unavailable, not in the answer
@@ -287,6 +356,13 @@ def _notices(inp: dict) -> dict:
                 continue
             # fixed text only: a raw error reason ("HTTP 503") would put an unchecked number after the gate
             out.append(NOTICE_OUTAGE.format(source=LABELS.get(p["agent"], "A data source")))
+    if not unknown and not inp.get("_brief"):
+        q = inp.get("question") or ""
+        t = inp.get("ticker")
+        if t and t not in facts.FACTS and _FILINGS_TOPIC_RX.search(q) and any(
+                p["agent"] == "filings" and p["status"] != "ok" for p in packs):
+            out.append(WAY_FILINGS_OTHER.format(who=_ticker_name(t) or t))
+        out.extend(_ways(q))
     by = {p["agent"]: p for p in packs}
     market = by.get("market")
     if market and market["status"] == "ok":
@@ -337,15 +413,18 @@ def _pipeline(inp: dict, config) -> dict:
             return out
         brief = _pipeline_core({"ticker": tk, "question": ADVICE_MKT_Q.format(name=name), "_brief": True}, config)
         if brief.get("status") != "ANSWERED" or not (brief.get("answer") or "").strip():
+            if tk == ticker and _unknown_ticker(tk):
+                return {**out, "answer": NOTICE_UNKNOWN_TICKER.format(ticker=tk)}
             return out
         return {**brief, "status": "DECLINED_ADVICE", "agents": out["agents"] + brief["agents"], "_company": name,
                 "answer": ADVICE_MKT_OPEN.format(name=name) + "\n\n" + brief["answer"].strip() + "\n\n"
-                          + ADVICE_MKT_CLOSE.format(name=name)}
+                          + " ".join(_ways(question) + [ADVICE_MKT_CLOSE.format(name=name)])}
     brief = _pipeline_core({"ticker": ticker, "question": ADVICE_BRIEF_Q, "_brief": True}, config)
     if brief.get("status") != "ANSWERED" or not (brief.get("answer") or "").strip():
         return out
     return {**brief, "status": "DECLINED_ADVICE", "agents": out["agents"] + brief["agents"],
-            "answer": ADVICE_OPEN + "\n\n" + brief["answer"].strip() + "\n\n" + ADVICE_CLOSE}
+            "answer": ADVICE_OPEN + "\n\n" + brief["answer"].strip() + "\n\n"
+                      + " ".join(_ways(question) + [ADVICE_CLOSE])}
 
 
 def _pipeline_core(inp: dict, config) -> dict:
@@ -373,6 +452,8 @@ def _pipeline_core(inp: dict, config) -> dict:
     r, s = _timed(deps.router, {"ticker": ticker, "question": question}, config)
     used(r.get("model"))
     chosen = [n for n in r.get("specialists") or [] if n in LABELS] or ["filings"]
+    if ticker not in facts.FACTS and "market" in LABELS and "market" not in chosen and not inp.get("_brief"):
+        chosen.append("market")  # no filings are loaded for this ticker: market data is the checked data there is
     agents.append(_row("desk_router", "model", r.get("model"), "ok" if not r.get("fallback") else "unavailable",
                        ("keyword fallback: " if r.get("fallback") else "picked ") + ", ".join(chosen), s))
     if r.get("advice") is True and not inp.get("_brief"):

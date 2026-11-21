@@ -69,3 +69,21 @@ def test_ticker_name_is_none_when_massive_is_down(monkeypatch):
     monkeypatch.setattr(massive, "available", lambda: True)
     monkeypatch.setattr(massive, "ticker_overview", boom)
     assert desk._ticker_name("LULU") is None
+
+
+def test_unknown_ticker_is_true_only_on_not_found(monkeypatch):
+    from backend import desk, massive
+
+    def raiser(code):
+        def f(t):
+            raise massive.Unavailable(code, "x")
+        return f
+    monkeypatch.setattr(massive, "available", lambda: True)
+    monkeypatch.setattr(massive, "ticker_overview", raiser("not_found"))
+    assert desk._unknown_ticker("ZZZZQ") is True
+    assert desk._unknown_ticker("AAPL") is False           # loaded ticker: never asked
+    monkeypatch.setattr(massive, "ticker_overview", raiser("network"))
+    assert desk._unknown_ticker("ZZZZQ") is False          # an outage is not "no such ticker"
+    monkeypatch.setattr(massive, "ticker_overview", lambda t: {"name": "Real Co"})
+    assert desk._unknown_ticker("REAL") is False
+    assert not any(ch.isdigit() for ch in desk.NOTICE_UNKNOWN_TICKER)

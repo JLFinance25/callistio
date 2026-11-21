@@ -74,7 +74,7 @@ def call_json(models, system, human, config=None, need_key=None):
 
 # ---------------------------------------------------------------- router
 _KEYWORDS = [
-    ("market", r"\bprice\b|\bstock\b|share price|\bclos(e|ed|ing)\b|\btrading\b|\breturns?\b|market cap|"
+    ("market", r"\bdividends?\b|\byield\b|\bprice\b|\bstock\b|share price|\bclos(e|ed|ing)\b|\btrading\b|\breturns?\b|market cap|"
                r"52-week|\bvolume\b"),
     ("news", r"\bnews\b|\bheadlines?\b|\barticles?\b|\bpress\b"),
     ("fundamentals", r"second source|cross-check|cross check|\bconfirm|\bagree|\bmassive\b"),
@@ -92,7 +92,10 @@ def route_by_keywords(question: str) -> list[str]:
 ROUTER_SYSTEM = """You route questions for Europa, a research assistant for financial analysts.
 Pick which specialists are needed to answer the question:
 - "filings": annual 10-K figures (revenue, margins, R&D, operating income, net income, EPS, cash, buybacks) and risk factors.
-- "market": stock price, closing price, price returns over a period, 52-week range, market cap, trading volume.
+- "market": stock price, closing price, price returns over a period, 52-week range and distance from the
+  52-week high or low, market cap, trading volume, dividends per share and dividend yield. Also pick it for
+  questions about whether the stock is expensive, overvalued, safe or risky, why it moved, and what analysts
+  think.
 - "fundamentals": whether a second source confirms or agrees with the reported annual figures.
 - "news": recent headlines about the company.
 Pick one or more. Questions about forecasts, price targets or "what will revenue be" go to "filings".
@@ -167,8 +170,16 @@ using ONLY the EVIDENCE SHEETS given to you (for example SEC 10-K facts, end-of-
 
 Rules:
 - Use only the evidence sheets. Never use outside knowledge. Never forecast, estimate or guess.
-- If the evidence does not answer the question (forecasts, price targets, quarterly figures, anything not listed),
-  set status to I_DONT_KNOW and say in one sentence that the data here doesn't cover it.
+- If the evidence does not directly answer the question (is it overvalued, is it safe, why did it move, what do
+  analysts think), never write "I don't know" or "I do not know" and never open with what is missing. Open with
+  the closest facts the sheets DO list (price, recent returns, 52-week range, P/E ratio, dividend, sales and
+  profit growth), each exactly as shown, add the everyday-words sentence, and only then say in one short sentence
+  which thing the data here does not list. Set status to ANSWERED when you gave such facts.
+  Never answer "Yes" or "No" unless a sheet figure directly settles it: with only market data on the sheets, a
+  question about profit, sales or growth gets the price facts and one sentence saying the data here does not
+  list sales or profit, never "Yes". Never write a sentence about a sheet that is missing.
+- Only when no sheet fact is related at all (a forecast, a price target, a quarter the sheets do not list), set
+  status to I_DONT_KNOW and say in one sentence that the data here doesn't cover it.
 - No investment advice. Do not say whether to buy, sell or hold. Market numbers are past data, never a view on
   what to do.
 - 2 to 4 short sentences. Do not show fact ids in the answer.

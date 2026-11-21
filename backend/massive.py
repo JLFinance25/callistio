@@ -166,3 +166,12 @@ def news(ticker: str, limit: int = 10) -> list[dict]:
                {"ticker": ticker, "order": "desc", "sort": "published_utc", "limit": int(limit)})
     res = data.get("results")
     return res if isinstance(res, list) else []
+
+
+def dividends(ticker: str, limit: int = 8) -> list[dict]:
+    """Dividend records, newest ex-dividend date first (cash_amount, ex_dividend_date, pay_date, frequency, dividend_type)."""
+    _check_ticker(ticker)
+    data = get("/v3/reference/dividends",
+               {"ticker": ticker, "order": "desc", "sort": "ex_dividend_date", "limit": int(limit)})
+    res = data.get("results")
+    return res if isinstance(res, list) else []

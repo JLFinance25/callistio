@@ -413,7 +413,11 @@ def problem(fid: str, f: dict, stated=None, ctx: dict | None = None, facts: dict
     """Why this fact cannot back the number as written (a key of _WHY), or None if it can."""
     if ctx:
         tags = fact_tags(fid)
-        if ctx.get("unknown"):
+        div_fact = fid.startswith("div_")
+        div_named = bool(re.search(r"\bdividends?\b|\byield\b", ctx["sentence"], re.I))
+        if div_fact and not div_named:
+            return "metric"  # a dividend fact only backs a number in a sentence that names the dividend or yield
+        if ctx.get("unknown") and not (div_fact and div_named):
             return "metric"  # Fix C: the number is attached to a dividend, debt, segment, quarter or other company
         if "_change_" in fid and not ctx["sign"] and not (_DIR.search(ctx["sentence"]) or _CHANGE_WORD.search(ctx["sentence"])):
             return "metric"  # a change ($62.7 billion more) written as a level ("revenue was $62.7 billion")

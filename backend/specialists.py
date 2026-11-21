@@ -209,7 +209,54 @@ def _price_facts(bars: list[dict]) -> tuple[dict, str]:
         lo = min(b["l"] for b in window)
         f["px_52w_high"] = _fact("52-week high (highest intraday price in the past year)", hi, "usd_per_share", src, as_of, fmt_price(hi))
         f["px_52w_low"] = _fact("52-week low (lowest intraday price in the past year)", lo, "usd_per_share", src, as_of, fmt_price(lo))
+        if hi > 0 and c <= hi:
+            g = round((hi - c) / hi * 100.0, 4)
+            f["gap_52w_high_pct"] = _fact("Distance below the fifty-two-week high (last close against the fifty-two-week high)", g,
+                                          "pct", rsrc, as_of, f"{_q(g, '0.1')}%")
+        if lo > 0 and c >= lo:
+            g = round((c - lo) / lo * 100.0, 4)
+            f["gap_52w_low_pct"] = _fact("Distance above the fifty-two-week low (last close against the fifty-two-week low)", g,
+                                         "pct", rsrc, as_of, f"{_q(g, '0.1')}%")
     return f, as_of
+
+
+_FREQ_WORDS = {1: "once a year", 2: "twice a year", 4: "four times a year (quarterly)", 12: "twelve times a year (monthly)"}
+
+
+def _dividend_facts(t: str, today: date, last_close) -> tuple[dict, str, list]:
+    """(facts, sheet line, extra allowed dates) from the newest regular cash dividend in the past 400 days."""
+    cutoff = (today - timedelta(days=400)).isoformat()
+    best = None
+    for r in massive.dividends(t, 8):
+        if not isinstance(r, dict):
+            continue
+        ex = str(r.get("ex_dividend_date") or "")[:10]
+        amt = _num(r.get("cash_amount"))
+        if not (ex >= cutoff and amt and amt > 0 and r.get("dividend_type", "CD") == "CD"):
+            continue
+        if best is None or ex > best[0]:
+            best = (ex, amt, r)
+    if best is None:
+        return {}, "DIVIDENDS: Massive lists no cash dividend for this ticker in the past year.", []
+    ex, amt, r = best
+    pay = str(r.get("pay_date") or "")[:10]
+    freq = _num(r.get("frequency"))
+    src = f"Massive dividends (as of {today.isoformat()})"
+    f = {"div_cash_last": _fact(f"Latest cash dividend per share (ex-dividend date {ex})", amt, "usd_per_share",
+                                src, ex, fmt_price(amt))}
+    if freq and 0 < freq <= 12:
+        annual = round(amt * freq, 6)
+        f["div_annual"] = _fact("Dividend per share per year at the latest rate (latest dividend times payments per year)",
+                                annual, "usd_per_share", src, ex, fmt_price(annual))
+        if last_close and last_close > 0:
+            y = round(annual / last_close * 100.0, 4)
+            f["div_yield_pct"] = _fact("Dividend yield at the latest rate (yearly dividend divided by the last close)",
+                                       y, "pct", src, ex, f"{_q(y, '0.01')}%")
+    how = _FREQ_WORDS.get(int(freq)) if freq else None
+    line = f"DIVIDENDS: the latest regular cash dividend has an ex-dividend date of {ex}"
+    line += f" and a pay date of {pay}" if pay else ""
+    line += f"; it is paid {how}." if how else "."
+    return f, line, [d for d in (ex, pay) if d]
 
 
 def _market(inp: dict) -> dict:
@@ -238,16 +285,26 @@ def _market(inp: dict) -> dict:
                                                     today.isoformat(), fmt_count(float(so)))
         except massive.Unavailable as e:
             reasons.append(e.reason)
+    div_line, div_dates = None, []
+    if facts:
+        try:
+            lc = (facts.get("px_close_last") or {}).get("value")
+            df, div_line, div_dates = _dividend_facts(t, today, lc)
+            facts.update(df)
+        except massive.Unavailable:
+            div_line, div_dates = None, []
     if not facts:
         return _pack("market", source=MARKET_SOURCE,
                      reason=reasons[0] if reasons else "Massive returned no usable market data")
     as_of = as_of or today.isoformat()
     lines = [f"MARKET DATA (Massive, end-of-day, as of {as_of}; id | what | value):"]
     lines += [f"{fid} | {fa['label']} | {fa['display']}" for fid, fa in facts.items()]
+    if div_line:
+        lines.append(div_line)
     # Only the last bar's date may be written. Today's date is not allowed: on a weekend or holiday
     # "closed at $X on <today>" would be a wrong date.
     return _pack("market", status="ok", source=MARKET_SOURCE, as_of=as_of, facts=facts,
-                 sheet="\n".join(lines), allow_text=["52-week"], allow_dates=[as_of])
+                 sheet="\n".join(lines), allow_text=["52-week"], allow_dates=[as_of, *div_dates])
 
 
 def market(inp: dict) -> dict:
