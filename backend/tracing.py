@@ -26,6 +26,8 @@ if all(os.environ.get(k) for k in _needed):
             if parent_run_id is None:
                 return super().on_chain_start(serialized, inputs, run_id=run_id, parent_run_id=parent_run_id, **kwargs)
             name = kwargs.get("name") or self._span_name(serialized, "step")
+            # Tried "retrieval" for specialist_* (2026-11-21 11:46): PRISM's step views then hid them and still showed
+            # "Answered with no retrieval", so every inner step stays a tool span.
             self._start_span(name, "tool", run_id, self._safe_text(inputs), parent_run_id,
                              run_metadata=kwargs.get("metadata"))
             self._open_chain(run_id)
