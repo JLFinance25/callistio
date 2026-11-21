@@ -238,7 +238,7 @@ async function ask(question){
       }
     }catch(e){}
     const newsOnly = d.status==='ANSWERED' && !(d.claims||[]).length && (d.news||[]).length;
-    wait.appendChild(el('div','status',isChat?'CALLISTO':'CALLISTO · '+(d.kind==='compare'?'SOURCE FIGURES · PRINTED BY CODE':d.kind==='unknown_ticker'?'TICKER NOT FOUND':newsOnly?'HEADLINES · NOT VERIFIED':(LABEL[d.status]||d.status))+(d.checker==='off'?' · CHECKER OFF':'')));
+    wait.appendChild(el('div','status',isChat?'CALLISTO':'CALLISTO · '+(d.kind==='claim_check'?'CLAIM CHECK · '+(d.verdict||''):d.kind==='compare'?'SOURCE FIGURES · PRINTED BY CODE':d.kind==='unknown_ticker'?'TICKER NOT FOUND':newsOnly?'HEADLINES · NOT VERIFIED':(LABEL[d.status]||d.status))+(d.checker==='off'?' · CHECKER OFF':'')));
     if(Array.isArray(d.stats) && d.stats.length){
       const g=el('div','tiles');
       d.stats.forEach(s=>{ if(!s) return; const t=el('div','tile'); t.appendChild(el('div','tl',s.label)); t.appendChild(el('div','tv',s.value)); if(s.note) t.appendChild(el('div','tn',s.note)); g.appendChild(t); });

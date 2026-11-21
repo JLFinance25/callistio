@@ -167,6 +167,32 @@ def _key_bullets(text: str, out: dict, ticker: str) -> str:
         return text
 
 
+_BARE_CHECK_RX = __import__("re").compile(
+    r"^\W*(?:(?:can|could|will) you |please )?(?:check|fact[- ]?check|verify)(?: this| that| a| the| my)?(?: claim| statement| number)?"
+    r"(?: for me)?\W*$|^\W*true or false\W*$", __import__("re").I)
+
+
+def _claim_check(q: str, sent: str):
+    """A pasted statement to fact-check ("check this: Apple's revenue was $500 billion"). The verdict comes from the
+    same code checker that guards every answer; no model is asked. None when the message is not a check request."""
+    try:
+        from backend import claimcheck
+        claim = claimcheck.wanted(q)
+        if not claim:
+            if _BARE_CHECK_RX.search(q):
+                return {"status": "CHAT", "kind": "claim_check_ask", "answer": claimcheck.ASK_FOR_CLAIM, "claims": [],
+                        "blocked": [], "news": [], "agent": "Callisto"}
+            return None
+        out = claimcheck.check(claim, _resolve_ticker(claim, sent))
+        if not isinstance(out, dict) or not str(out.get("answer") or "").strip():
+            return None
+        out.setdefault("followups", ["Check this: Apple's revenue was $500 billion in fiscal 2026",
+                                     "Check this: Nvidia fell 14% on Friday", "How do you check the numbers?"])
+        return out
+    except Exception:
+        return None   # the feature never breaks a normal answer
+
+
 def _finish(out, q: str, ticker: str, lead: str = ""):
     """Same shape for every answer (lead line, bullets, What it means, Deeper read), then follow-up suggestions.
     Layout only adds line breaks and bullet marks: the checked words are not changed."""
@@ -202,6 +228,9 @@ def ask(req: AskRequest):
         return _bad("Please send a question.")
     if len(q) > MAX_Q:
         return _bad(f"Please keep questions under {MAX_Q} characters.")
+    checked = _claim_check(q, ticker)
+    if checked:   # "check this: ..." -> a verdict per number from the code checker, no model
+        return _finish(checked, q, str(checked.get("ticker") or ticker))
     chat = smalltalk.reply(q)
     if not chat:
         q = _standalone(q, _san(req.last_question or "").strip()[:MAX_Q])
